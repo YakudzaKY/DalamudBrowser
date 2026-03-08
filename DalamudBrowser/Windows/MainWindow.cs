@@ -1,122 +1,243 @@
-﻿using System;
+using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
-using Dalamud.Interface.Textures;
-using Dalamud.Interface.Utility;
-using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
-using Lumina.Excel.Sheets;
+using DalamudBrowser.Models;
+using DalamudBrowser.Services;
 
 namespace DalamudBrowser.Windows;
 
-public class MainWindow : Window, IDisposable
+public sealed class MainWindow : Window, IDisposable
 {
-    private readonly string goatImagePath;
-    private readonly Plugin plugin;
+    private readonly BrowserWorkspace workspace;
 
-    // We give this window a hidden ID using ##.
-    // The user will see "Dalamud Browser" as window title,
-    // but for ImGui the ID will be "Dalamud Browser##MainWindow"
-    public MainWindow(Plugin plugin, string goatImagePath)
-        : base("Dalamud Browser##MainWindow", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
+    public MainWindow(BrowserWorkspace workspace)
+        : base("Dalamud Browser Workspace###DalamudBrowserMainWindow")
     {
-        SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = new Vector2(375, 330),
-            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
-        };
-
-        this.goatImagePath = goatImagePath;
-        this.plugin = plugin;
+        Size = new Vector2(980f, 680f);
+        SizeCondition = ImGuiCond.FirstUseEver;
+        this.workspace = workspace;
     }
 
     public void Dispose() { }
 
     public override void Draw()
     {
-        ImGui.Text($"The random config bool is {plugin.Configuration.SomePropertyToBeSavedAndWithADefault}");
+        var configuration = workspace.Configuration;
+        var changed = false;
 
-        if (ImGui.Button("Show Settings"))
+        lock (workspace.SyncRoot)
         {
-            plugin.ToggleConfigUi();
-        }
+            configuration.EnsureInitialized();
 
-        ImGui.Spacing();
+            ImGui.TextUnformatted("Collections contain zero or more browser views.");
+            ImGui.TextDisabled($"Renderer backend: {workspace.BackendName} | JavaScript: {(workspace.SupportsJavaScript ? "yes" : "not yet")}");
+            ImGui.TextDisabled("Unlocked views can be moved and resized using the ImGui frame. Click-through is applied when a view is locked.");
+            ImGui.Separator();
 
-        // Normally a BeginChild() would have to be followed by an unconditional EndChild(),
-        // ImRaii takes care of this after the scope ends.
-        // This works for all ImGui functions that require specific handling, examples are BeginTable() or Indent().
-        using (var child = ImRaii.Child("SomeChildWithAScrollbar", Vector2.Zero, true))
-        {
-            // Check if this child is drawing
-            if (child.Success)
+            if (ImGui.Button("Add Collection"))
             {
-                ImGui.Text("Have a goat:");
-                var goatImage = Plugin.TextureProvider.GetFromFile(goatImagePath).GetWrapOrDefault();
-                if (goatImage != null)
+                workspace.AddCollection();
+                changed = true;
+            }
+
+            var selectedCollection = configuration.Collections.Find(collection => collection.Id == configuration.SelectedCollectionId);
+            if (selectedCollection != null)
+            {
+                ImGui.SameLine();
+                if (ImGui.Button("Remove Collection"))
                 {
-                    using (ImRaii.PushIndent(55f))
+                    workspace.RemoveCollection(selectedCollection.Id);
+                    changed = true;
+                    selectedCollection = configuration.Collections.Find(collection => collection.Id == configuration.SelectedCollectionId);
+                }
+
+                if (selectedCollection != null)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.Button("Add View"))
                     {
-                        ImGui.Image(goatImage.Handle, goatImage.Size);
+                        workspace.AddView(selectedCollection.Id);
+                        changed = true;
                     }
                 }
-                else
-                {
-                    ImGui.Text("Image not found.");
-                }
+            }
 
-                ImGuiHelpers.ScaledDummy(20.0f);
+            var collectionPaneWidth = MathF.Min(280f, ImGui.GetContentRegionAvail().X * 0.3f);
+            if (ImGui.BeginChild("CollectionsPane", new Vector2(collectionPaneWidth, 0f), true))
+            {
+                foreach (var collection in configuration.Collections)
+                {
+                    ImGui.PushID(collection.Id.ToString());
 
-                // Example for other services that Dalamud provides.
-                // PlayerState provides a wrapper filled with information about the player character.
+                    var enabled = collection.IsEnabled;
+                    if (ImGui.Checkbox("##Enabled", ref enabled))
+                    {
+                        collection.IsEnabled = enabled;
+                        changed = true;
+                    }
 
-                var playerState = Plugin.PlayerState;
-                if (!playerState.IsLoaded)
-                {
-                    ImGui.Text("Our local player is currently not logged in.");
-                    return;
-                }
-                
-                if (!playerState.ClassJob.IsValid)
-                {
-                    ImGui.Text("Our current job is currently not valid.");
-                    return;
-                }
-                
-                ImGui.AlignTextToFramePadding();
-                ImGui.Text($"Current job:");
-                
-                // Scaling hardcoded pixel values is important, as otherwise users with HUD scales above or below 100%
-                // won't be able to see everything.
-                ImGui.SameLine(120 * ImGuiHelpers.GlobalScale);
-                
-                // Get the icon id from a known offset + the class jobs id
-                var jobIconId = 62100 + playerState.ClassJob.RowId;
-                var iconTexture = Plugin.TextureProvider.GetFromGameIcon(new GameIconLookup(jobIconId)).GetWrapOrEmpty();
-                ImGui.Image(iconTexture.Handle, new Vector2(28, 28) * ImGuiHelpers.GlobalScale);
-                
-                ImGui.SameLine();
-                
-                // If you want to see the Macro representation of this SeString use `.ToMacroString()`
-                // More info about SeStrings: https://dalamud.dev/plugin-development/sestring/
-                ImGui.Text(playerState.ClassJob.Value.Abbreviation.ToString());
-                
-                ImGui.SameLine();
-                ImGui.Text($" [Level {playerState.Level}]");
-                
-                // Example for querying Lumina, getting the name of our current area.
-                var territoryId = Plugin.ClientState.TerritoryType;
-                if (Plugin.DataManager.GetExcelSheet<TerritoryType>().TryGetRow(territoryId, out var territoryRow))
-                {
-                    ImGui.Text($"Current location:");
-                    ImGui.SameLine(120 * ImGuiHelpers.GlobalScale);
-                    ImGui.Text(territoryRow.PlaceName.Value.Name.ToString());
-                }
-                else
-                {
-                    ImGui.Text("Invalid territory.");
+                    ImGui.SameLine();
+                    var isSelected = collection.Id == configuration.SelectedCollectionId;
+                    if (ImGui.Selectable(collection.Name, isSelected))
+                    {
+                        configuration.SelectedCollectionId = collection.Id;
+                        changed = true;
+                    }
+
+                    ImGui.PopID();
                 }
             }
+
+            ImGui.EndChild();
+            ImGui.SameLine();
+
+            if (ImGui.BeginChild("CollectionEditorPane", Vector2.Zero, true))
+            {
+                selectedCollection ??= configuration.Collections.Find(collection => collection.Id == configuration.SelectedCollectionId);
+                if (selectedCollection == null)
+                {
+                    ImGui.TextDisabled("No collection selected.");
+                }
+                else
+                {
+                    DrawCollectionEditor(selectedCollection, ref changed);
+                }
+            }
+
+            ImGui.EndChild();
+
+            if (changed)
+            {
+                workspace.Save();
+            }
         }
+    }
+
+    private void DrawCollectionEditor(BrowserCollectionConfig collection, ref bool changed)
+    {
+        var collectionName = collection.Name;
+        if (ImGui.InputText("Collection Name", ref collectionName, 128))
+        {
+            collection.Name = string.IsNullOrWhiteSpace(collectionName) ? "Collection" : collectionName.Trim();
+            changed = true;
+        }
+
+        var isEnabled = collection.IsEnabled;
+        if (ImGui.Checkbox("Collection Enabled", ref isEnabled))
+        {
+            collection.IsEnabled = isEnabled;
+            changed = true;
+        }
+
+        ImGui.Separator();
+
+        if (collection.Views.Count == 0)
+        {
+            ImGui.TextDisabled("This collection has no browser views yet.");
+            return;
+        }
+
+        BrowserViewConfig? viewToRemove = null;
+        foreach (var view in collection.Views)
+        {
+            ImGui.PushID(view.Id.ToString());
+            ImGui.Separator();
+            ImGui.TextUnformatted(string.IsNullOrWhiteSpace(view.Title) ? "Browser View" : view.Title);
+            DrawViewEditor(collection, view, ref changed, ref viewToRemove);
+            ImGui.PopID();
+        }
+
+        if (viewToRemove != null)
+        {
+            workspace.RemoveView(collection.Id, viewToRemove.Id);
+            changed = true;
+        }
+    }
+
+    private void DrawViewEditor(BrowserCollectionConfig collection, BrowserViewConfig view, ref bool changed, ref BrowserViewConfig? viewToRemove)
+    {
+        var title = view.Title;
+        if (ImGui.InputText("Title", ref title, 128))
+        {
+            view.Title = string.IsNullOrWhiteSpace(title) ? "Browser View" : title.Trim();
+            changed = true;
+        }
+
+        var url = view.Url;
+        if (ImGui.InputText("URL", ref url, 512))
+        {
+            view.Url = url.Trim();
+            changed = true;
+        }
+
+        var visible = view.IsVisible;
+        if (ImGui.Checkbox("Visible", ref visible))
+        {
+            view.IsVisible = visible;
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        var locked = view.Locked;
+        if (ImGui.Checkbox("Lock", ref locked))
+        {
+            view.Locked = locked;
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        var clickThrough = view.ClickThrough;
+        if (ImGui.Checkbox("Click Through", ref clickThrough))
+        {
+            view.ClickThrough = clickThrough;
+            changed = true;
+        }
+
+        var autoRetry = view.AutoRetry;
+        if (ImGui.Checkbox("Auto Retry", ref autoRetry))
+        {
+            view.AutoRetry = autoRetry;
+            changed = true;
+        }
+
+        var status = workspace.GetStatusSnapshot(view.Id);
+        ImGui.TextColored(GetStatusColor(status.Availability), workspace.GetStatusText(status));
+        if (!string.IsNullOrWhiteSpace(status.LastError))
+        {
+            ImGui.TextWrapped(status.LastError);
+        }
+
+        ImGui.TextDisabled($"Layout: {view.Width:0}x{view.Height:0} @ {view.PositionX:0},{view.PositionY:0}");
+        ImGui.TextDisabled("If the view is unlocked, use the ImGui frame to drag and resize it. Click-through only applies while locked.");
+
+        if (ImGui.Button("Check Now"))
+        {
+            workspace.ForceProbe(view.Id);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Reset Layout"))
+        {
+            workspace.ResetLayout(view.Id);
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Remove View"))
+        {
+            viewToRemove = view;
+        }
+    }
+
+    private static Vector4 GetStatusColor(BrowserAvailabilityState state)
+    {
+        return state switch
+        {
+            BrowserAvailabilityState.Available => new Vector4(0.35f, 0.9f, 0.45f, 1f),
+            BrowserAvailabilityState.Unavailable => new Vector4(0.95f, 0.4f, 0.35f, 1f),
+            BrowserAvailabilityState.Checking => new Vector4(0.4f, 0.75f, 1f, 1f),
+            _ => new Vector4(0.85f, 0.85f, 0.4f, 1f),
+        };
     }
 }

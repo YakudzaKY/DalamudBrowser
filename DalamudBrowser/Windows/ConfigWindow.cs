@@ -1,59 +1,66 @@
-﻿using System;
+using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using DalamudBrowser.Services;
 
 namespace DalamudBrowser.Windows;
 
-public class ConfigWindow : Window, IDisposable
+public sealed class ConfigWindow : Window, IDisposable
 {
-    private readonly Configuration configuration;
+    private readonly BrowserWorkspace workspace;
 
-    // We give this window a constant ID using ###.
-    // This allows for labels to be dynamic, like "{FPS Counter}fps###XYZ counter window",
-    // and the window ID will always be "###XYZ counter window" for ImGui
-    public ConfigWindow(Plugin plugin) : base("Dalamud Browser Settings###DalamudBrowserConfig")
+    public ConfigWindow(BrowserWorkspace workspace) : base("Dalamud Browser Settings###DalamudBrowserConfig")
     {
-        Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
-                ImGuiWindowFlags.NoScrollWithMouse;
-
-        Size = new Vector2(232, 90);
-        SizeCondition = ImGuiCond.Always;
-
-        configuration = plugin.Configuration;
+        Flags = ImGuiWindowFlags.NoCollapse;
+        Size = new Vector2(520f, 320f);
+        SizeCondition = ImGuiCond.FirstUseEver;
+        this.workspace = workspace;
     }
 
     public void Dispose() { }
 
-    public override void PreDraw()
-    {
-        // Flags must be added or removed before Draw() is being called, or they won't apply
-        if (configuration.IsConfigWindowMovable)
-        {
-            Flags &= ~ImGuiWindowFlags.NoMove;
-        }
-        else
-        {
-            Flags |= ImGuiWindowFlags.NoMove;
-        }
-    }
-
     public override void Draw()
     {
-        // Can't ref a property, so use a local copy
-        var configValue = configuration.SomePropertyToBeSavedAndWithADefault;
-        if (ImGui.Checkbox("Random Config Bool", ref configValue))
-        {
-            configuration.SomePropertyToBeSavedAndWithADefault = configValue;
-            // Can save immediately on change if you don't want to provide a "Save and Close" button
-            configuration.Save();
-        }
+        var changed = false;
 
-        var movable = configuration.IsConfigWindowMovable;
-        if (ImGui.Checkbox("Movable Config Window", ref movable))
+        lock (workspace.SyncRoot)
         {
-            configuration.IsConfigWindowMovable = movable;
-            configuration.Save();
+            var configuration = workspace.Configuration;
+
+            var openManagerOnStartup = configuration.OpenManagerOnStartup;
+            if (ImGui.Checkbox("Open workspace on startup", ref openManagerOnStartup))
+            {
+                configuration.OpenManagerOnStartup = openManagerOnStartup;
+                changed = true;
+            }
+
+            var linkCheckIntervalSeconds = configuration.LinkCheckIntervalSeconds;
+            if (ImGui.SliderInt("Link check interval (seconds)", ref linkCheckIntervalSeconds, 2, 60))
+            {
+                configuration.LinkCheckIntervalSeconds = linkCheckIntervalSeconds;
+                changed = true;
+            }
+
+            var linkRequestTimeoutSeconds = configuration.LinkRequestTimeoutSeconds;
+            if (ImGui.SliderInt("Link request timeout (seconds)", ref linkRequestTimeoutSeconds, 2, 30))
+            {
+                configuration.LinkRequestTimeoutSeconds = linkRequestTimeoutSeconds;
+                changed = true;
+            }
+
+            ImGui.Separator();
+            ImGui.TextUnformatted($"Current renderer backend: {workspace.BackendName}");
+            ImGui.TextDisabled($"JavaScript support active: {(workspace.SupportsJavaScript ? "yes" : "no")}");
+            ImGui.Spacing();
+            ImGui.TextWrapped("Practical production choice for real HTML/JS rendering inside the game process: Chromium Embedded Framework in off-screen rendering mode (CEF OSR).");
+            ImGui.TextWrapped("This plugin currently wires the workspace, layout, retry and interaction model first, while the actual browser engine remains behind a backend abstraction.");
+            ImGui.TextWrapped("WebView2 is a weaker fit for an ImGui texture surface, and Ultralight would require more custom native integration here than CEF OSR.");
+
+            if (changed)
+            {
+                workspace.Save();
+            }
         }
     }
 }

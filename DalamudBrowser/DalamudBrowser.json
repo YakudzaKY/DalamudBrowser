@@ -1,12 +1,12 @@
 {
   "Author": "Yakudza_KY",
   "Name": "Dalamud Browser",
-  "Punchline": "Starter plugin scaffold based on GoatCorp's Dalamud template.",
-  "Description": "Starter scaffold for a Dalamud plugin repository. Current sample slash command: /dbrowser.",
+  "Punchline": "Manage in-game browser view collections for local web tools like ACT.",
+  "Description": "Workspace-oriented Dalamud plugin scaffold for browser view collections, link retry, lock and click-through behavior. Command: /dbrowser.",
   "ApplicableVersion": "any",
   "Tags": [
     "dalamud",
-    "template",
-    "starter"
+    "browser",
+    "act"
   ]
 }

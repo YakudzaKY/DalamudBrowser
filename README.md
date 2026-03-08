@@ -1,13 +1,14 @@
 # DalamudBrowser
 
-Local repository scaffolded from the official GoatCorp `SamplePlugin` template for Dalamud / FFXIV plugin development.
+Workspace-oriented Dalamud plugin for managing collections of in-game browser views.
 
 ## Included
 
-* Dalamud plugin solution and project renamed to `DalamudBrowser`
-* Sample command wired to `/dbrowser`
-* Sample main window, config window, plugin JSON and GitHub Actions workflow
-* Local git repository initialized for this folder
+* Collections with zero or more browser views
+* Per-view URL, visibility, lock and click-through settings
+* Periodic URL availability checks with retry for endpoints like local ACT web pages
+* Persisted position and size for each view window
+* Placeholder renderer backend behind an abstraction for future real HTML/JS rendering
 
 ## Prerequisites
 
@@ -27,7 +28,13 @@ Local repository scaffolded from the official GoatCorp `SamplePlugin` template f
 1. In game, open Dalamud settings with `/xlsettings`.
 2. In `Experimental`, add the full path to `DalamudBrowser.dll` from the build output directory.
 3. Open `/xlplugins`, go to `Dev Tools > Installed Dev Plugins`, and enable `Dalamud Browser`.
-4. Use `/dbrowser` to open the sample window.
+4. Use `/dbrowser` to open the workspace manager.
+
+## Current State
+
+* The plugin already manages collections, view windows, layout persistence and link health checks.
+* The actual HTML/JavaScript page surface is not connected yet.
+* Recommended production renderer backend for this project: CEF off-screen rendering (OSR).
 
 ## References
 
