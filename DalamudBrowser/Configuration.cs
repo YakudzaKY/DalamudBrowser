@@ -9,7 +9,7 @@ namespace DalamudBrowser;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
     public bool OpenManagerOnStartup { get; set; } = true;
     public int LinkCheckIntervalSeconds { get; set; } = 5;
     public int LinkRequestTimeoutSeconds { get; set; } = 3;

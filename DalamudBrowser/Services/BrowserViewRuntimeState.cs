@@ -13,12 +13,13 @@ public sealed class BrowserViewRuntimeState
     private string? lastError;
     private DateTimeOffset nextProbeUtc = DateTimeOffset.MinValue;
     private bool forceLayoutApply = true;
+    private int reloadGeneration;
 
     public BrowserViewStatusSnapshot GetSnapshot()
     {
         lock (syncRoot)
         {
-            return new BrowserViewStatusSnapshot(availability, isChecking, lastCheckedUtc, lastAvailableUtc, lastError);
+            return new BrowserViewStatusSnapshot(availability, isChecking, lastCheckedUtc, lastAvailableUtc, lastError, reloadGeneration);
         }
     }
 
@@ -55,6 +56,11 @@ public sealed class BrowserViewRuntimeState
     {
         lock (syncRoot)
         {
+            if (availability != BrowserAvailabilityState.Available)
+            {
+                reloadGeneration = reloadGeneration == int.MaxValue ? 1 : reloadGeneration + 1;
+            }
+
             availability = BrowserAvailabilityState.Available;
             isChecking = false;
             lastCheckedUtc = nowUtc;

@@ -18,9 +18,11 @@ public sealed class PlaceholderBrowserRenderBackend : IBrowserRenderBackend
 
     public void Draw(BrowserRenderRequest request)
     {
+        ImGui.PushStyleVar(ImGuiStyleVar.Alpha, Math.Clamp(request.OpacityFactor, 0.01f, 1f));
         using var child = ImRaii.Child($"BrowserSurface-{request.ViewId}", request.SurfaceSize, true);
         if (!child.Success)
         {
+            ImGui.PopStyleVar();
             return;
         }
 
@@ -42,6 +44,7 @@ public sealed class PlaceholderBrowserRenderBackend : IBrowserRenderBackend
         ImGui.TextWrapped("Collections, window layout, lock/click-through and URL retry logic are already active.");
         ImGui.TextWrapped("The actual HTML/JavaScript surface is not connected yet.");
         ImGui.TextWrapped("Recommended production backend: CEF off-screen rendering (OSR).");
+        ImGui.PopStyleVar();
     }
 
     public void EndFrame() { }

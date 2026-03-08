@@ -31,6 +31,7 @@ public sealed record BrowserViewCommand(
     int Width,
     int Height,
     float ZoomFactor,
+    int ReloadGeneration,
     bool Muted,
     int FrameRate,
     bool Hidden);
@@ -97,6 +98,7 @@ public sealed class PipeJsonChannel : IDisposable
     private readonly StreamWriter writer;
     private readonly CancellationTokenSource disposeTokenSource = new();
     private readonly SemaphoreSlim writeLock = new(1, 1);
+    private int disposeRequested;
 
     private PipeJsonChannel(Stream stream)
     {
@@ -143,25 +145,49 @@ public sealed class PipeJsonChannel : IDisposable
 
     public async Task SendAsync<T>(T payload, CancellationToken cancellationToken = default)
     {
-        var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(disposeTokenSource.Token, cancellationToken);
-        var line = JsonSerializer.Serialize(payload, JsonProtocol.Options);
+        if (Volatile.Read(ref disposeRequested) != 0 || disposeTokenSource.IsCancellationRequested)
+        {
+            return;
+        }
 
-        await writeLock.WaitAsync(linkedTokenSource.Token);
+        using var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(disposeTokenSource.Token, cancellationToken);
+        var line = JsonSerializer.Serialize(payload, JsonProtocol.Options);
+        var lockTaken = false;
+
         try
         {
+            await writeLock.WaitAsync(linkedTokenSource.Token);
+            lockTaken = true;
             await writer.WriteLineAsync(line.AsMemory(), linkedTokenSource.Token);
             await writer.FlushAsync(linkedTokenSource.Token);
         }
+        catch (OperationCanceledException) when (disposeTokenSource.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException) when (disposeTokenSource.IsCancellationRequested || Volatile.Read(ref disposeRequested) != 0)
+        {
+        }
+        catch (IOException) when (disposeTokenSource.IsCancellationRequested || Volatile.Read(ref disposeRequested) != 0)
+        {
+        }
         finally
         {
-            writeLock.Release();
-            linkedTokenSource.Dispose();
+            if (lockTaken)
+            {
+                try
+                {
+                    writeLock.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+            }
         }
     }
 
     public void Dispose()
     {
-        if (disposeTokenSource.IsCancellationRequested)
+        if (Interlocked.Exchange(ref disposeRequested, 1) != 0)
         {
             return;
         }
@@ -175,10 +201,21 @@ public sealed class PipeJsonChannel : IDisposable
         {
         }
 
-        reader.Dispose();
-        writer.Dispose();
-        writeLock.Dispose();
-        disposeTokenSource.Dispose();
+        try
+        {
+            reader.Dispose();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            writer.Dispose();
+        }
+        catch
+        {
+        }
     }
 
     private async Task ReadLoopAsync()

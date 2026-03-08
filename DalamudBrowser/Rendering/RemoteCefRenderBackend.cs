@@ -77,27 +77,27 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
                 hiddenViewState.EnsureHidden(rendererProcess);
             }
 
-            DrawPlaceholder(request.SurfaceSize, placeholderMessage);
+            DrawPlaceholder(request.SurfaceSize, placeholderMessage, request.OpacityFactor);
             return;
         }
 
         EnsureRendererProcess();
         if (rendererProcess == null)
         {
-            DrawPlaceholder(request.SurfaceSize, lastError ?? "Preparing browser renderer...");
+            DrawPlaceholder(request.SurfaceSize, lastError ?? "Preparing browser renderer...", request.OpacityFactor);
             return;
         }
 
         if (!rendererProcess.IsConnected)
         {
-            DrawPlaceholder(request.SurfaceSize, rendererProcess.LastError ?? lastError ?? "Starting browser renderer...");
+            DrawPlaceholder(request.SurfaceSize, rendererProcess.LastError ?? lastError ?? "Starting browser renderer...", request.OpacityFactor);
             return;
         }
 
         var device = (ID3D11Device*)pluginInterface.UiBuilder.DeviceHandle;
         if (device == null)
         {
-            DrawPlaceholder(request.SurfaceSize, "Game device handle is not available.");
+            DrawPlaceholder(request.SurfaceSize, "Game device handle is not available.", request.OpacityFactor);
             return;
         }
 
@@ -110,14 +110,15 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
             Math.Max(1, (int)MathF.Round(MathF.Max(16f, request.SurfaceSize.X))),
             Math.Max(1, (int)MathF.Round(MathF.Max(16f, request.SurfaceSize.Y))),
             Math.Clamp(request.ZoomFactor, 0.25f, 5f),
+            request.Status.ReloadGeneration,
             !request.SoundEnabled,
             ResolveWindowlessFrameRate(request.PerformancePreset),
             Hidden: false);
 
         viewState.Sync(rendererProcess, syncCommand);
-        if (!viewState.TryRender(request.SurfaceSize))
+        if (!viewState.TryRender(request.SurfaceSize, request.OpacityFactor))
         {
-            DrawPlaceholder(request.SurfaceSize, "Loading page...");
+            DrawPlaceholder(request.SurfaceSize, "Loading page...", request.OpacityFactor);
         }
     }
 
@@ -291,18 +292,19 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
         return viewState;
     }
 
-    private static void DrawPlaceholder(Vector2 requestedSize, string message)
+    private static void DrawPlaceholder(Vector2 requestedSize, string message, float opacityFactor)
     {
         var size = new Vector2(
             MathF.Max(16f, requestedSize.X),
             MathF.Max(16f, requestedSize.Y));
+        var alpha = Math.Clamp(opacityFactor, 0.01f, 1f);
 
         var drawList = ImGui.GetWindowDrawList();
         var min = ImGui.GetCursorScreenPos();
         var max = min + size;
-        drawList.AddRectFilled(min, max, ImGui.GetColorU32(new Vector4(0.07f, 0.09f, 0.12f, 1f)), 8f);
-        drawList.AddRect(min, max, ImGui.GetColorU32(new Vector4(0.22f, 0.27f, 0.34f, 1f)), 8f, 0, 1.5f);
-        drawList.AddText(min + new Vector2(14f, 12f), ImGui.GetColorU32(new Vector4(0.87f, 0.9f, 0.96f, 1f)), message);
+        drawList.AddRectFilled(min, max, ImGui.GetColorU32(new Vector4(0.07f, 0.09f, 0.12f, alpha)), 8f);
+        drawList.AddRect(min, max, ImGui.GetColorU32(new Vector4(0.22f, 0.27f, 0.34f, alpha)), 8f, 0, 1.5f);
+        drawList.AddText(min + new Vector2(14f, 12f), ImGui.GetColorU32(new Vector4(0.87f, 0.9f, 0.96f, alpha)), message);
         ImGui.Dummy(size);
     }
 
@@ -439,14 +441,14 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
             processHost.Send(RendererCommand.SyncView(lastCommand));
         }
 
-        public bool TryRender(Vector2 requestedSize)
+        public bool TryRender(Vector2 requestedSize, float opacityFactor)
         {
             if (surface == null)
             {
                 return false;
             }
 
-            surface.Render(requestedSize);
+            surface.Render(requestedSize, opacityFactor);
             return true;
         }
 
@@ -639,6 +641,17 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
 
             _ = activeChannel.SendAsync(command).ContinueWith(task =>
             {
+                if (task.IsCanceled || disposed || task.Exception == null)
+                {
+                    return;
+                }
+
+                var exception = task.Exception.Flatten().GetBaseException();
+                if (exception is OperationCanceledException or ObjectDisposedException or IOException)
+                {
+                    return;
+                }
+
                 if (task.Exception != null)
                 {
                     log.Warning(task.Exception.Flatten(), "Failed to send command to the browser renderer process.");
@@ -802,13 +815,15 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
             texture->Release();
         }
 
-        public void Render(Vector2 requestedSize)
+        public void Render(Vector2 requestedSize, float opacityFactor)
         {
             var size = new Vector2(
                 MathF.Max(16f, requestedSize.X),
                 MathF.Max(16f, requestedSize.Y));
 
+            ImGui.PushStyleVar(ImGuiStyleVar.Alpha, Math.Clamp(opacityFactor, 0.01f, 1f));
             ImGui.Image(textureId, size);
+            ImGui.PopStyleVar();
         }
     }
 }

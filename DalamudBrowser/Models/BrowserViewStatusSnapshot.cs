@@ -7,4 +7,5 @@ public readonly record struct BrowserViewStatusSnapshot(
     bool IsChecking,
     DateTimeOffset? LastCheckedUtc,
     DateTimeOffset? LastAvailableUtc,
-    string? LastError);
+    string? LastError,
+    int ReloadGeneration);

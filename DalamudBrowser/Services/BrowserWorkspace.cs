@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.WebSockets;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,8 +26,9 @@ public sealed class BrowserWorkspace : IDisposable
         BottomRight,
     }
 
-    private readonly record struct BrowserProbeTarget(Guid ViewId, string Url, int TimeoutSeconds);
+    private readonly record struct BrowserProbeTarget(Guid ViewId, string Url, int TimeoutSeconds, bool ActOptimizations);
     private readonly record struct BrowserSurfaceLayout(Vector2 Position, Vector2 Size);
+    private readonly record struct BrowserViewportMetrics(Vector2 Position, Vector2 Size);
     private readonly record struct BrowserViewWindowSnapshot(
         Guid ViewId,
         string Title,
@@ -36,10 +38,9 @@ public sealed class BrowserWorkspace : IDisposable
         bool SoundEnabled,
         BrowserViewPerformancePreset PerformancePreset,
         float ZoomPercent,
-        float PositionX,
-        float PositionY,
-        float Width,
-        float Height);
+        float OpacityPercent,
+        Vector2 Position,
+        Vector2 Size);
 
     private const float MinViewWidth = 320f;
     private const float MinViewHeight = 200f;
@@ -125,6 +126,10 @@ public sealed class BrowserWorkspace : IDisposable
                 Title = $"Browser View {collection.Views.Count + 1}",
                 PositionX = 220f + (collection.Views.Count * 24f),
                 PositionY = 180f + (collection.Views.Count * 24f),
+                PositionXPercent = -1f,
+                PositionYPercent = -1f,
+                WidthPercent = -1f,
+                HeightPercent = -1f,
             };
 
             collection.Views.Add(view);
@@ -174,6 +179,10 @@ public sealed class BrowserWorkspace : IDisposable
             view.PositionY = 180f;
             view.Width = 640f;
             view.Height = 420f;
+            view.PositionXPercent = -1f;
+            view.PositionYPercent = -1f;
+            view.WidthPercent = -1f;
+            view.HeightPercent = -1f;
             GetRuntimeState(viewId).RequestLayoutApply();
             Configuration.Save();
         }
@@ -216,6 +225,7 @@ public sealed class BrowserWorkspace : IDisposable
 
     public void DrawViews()
     {
+        var viewport = GetViewportMetrics();
         List<BrowserViewWindowSnapshot> windows;
         List<Guid> knownViewIds;
         lock (SyncRoot)
@@ -232,19 +242,22 @@ public sealed class BrowserWorkspace : IDisposable
                 .Where(collection => collection.IsEnabled)
                 .SelectMany(collection => collection.Views)
                 .Where(view => view.IsVisible)
-                .Select(view => new BrowserViewWindowSnapshot(
-                    view.Id,
-                    view.Title,
-                    view.Url,
-                    view.Locked,
-                    view.ClickThrough,
-                    view.SoundEnabled,
-                    view.PerformancePreset,
-                    view.ZoomPercent,
-                    view.PositionX,
-                    view.PositionY,
-                    view.Width,
-                    view.Height))
+                .Select(view =>
+                {
+                    var layout = ResolveWindowLayout(view, viewport);
+                    return new BrowserViewWindowSnapshot(
+                        view.Id,
+                        view.Title,
+                        view.Url,
+                        view.Locked,
+                        view.ClickThrough,
+                        view.SoundEnabled,
+                        view.PerformancePreset,
+                        view.ZoomPercent,
+                        view.OpacityPercent,
+                        layout.Position,
+                        layout.Size);
+                })
                 .ToList();
         }
 
@@ -275,7 +288,7 @@ public sealed class BrowserWorkspace : IDisposable
         {
             foreach (var window in windows)
             {
-                DrawView(window);
+                DrawView(window, viewport);
             }
         }
         finally
@@ -323,6 +336,17 @@ public sealed class BrowserWorkspace : IDisposable
                 return;
             }
 
+            if (target.ActOptimizations
+                && BrowserUrlUtility.TryGetActOverlayWebSocket(normalizedUrl, out var overlayWebSocketUri))
+            {
+                var actAvailabilityError = await ProbeActOverlayAsync(overlayWebSocketUri, target.TimeoutSeconds, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(actAvailabilityError))
+                {
+                    GetRuntimeState(target.ViewId).MarkUnavailable(DateTimeOffset.UtcNow, actAvailabilityError);
+                    return;
+                }
+            }
+
             if (uri.IsFile)
             {
                 var localPath = uri.LocalPath;
@@ -364,6 +388,34 @@ public sealed class BrowserWorkspace : IDisposable
         }
     }
 
+    private static async Task<string?> ProbeActOverlayAsync(Uri overlayWebSocketUri, int timeoutSeconds, CancellationToken cancellationToken)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+        using var client = new ClientWebSocket();
+        client.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+
+        try
+        {
+            await client.ConnectAsync(overlayWebSocketUri, timeoutCts.Token);
+            if (client.State == WebSocketState.Open)
+            {
+                client.Abort();
+            }
+
+            return null;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return $"ACT overlay websocket timeout after {timeoutSeconds} seconds: {overlayWebSocketUri}";
+        }
+        catch (Exception ex)
+        {
+            return $"ACT overlay websocket unavailable: {overlayWebSocketUri} ({ex.Message})";
+        }
+    }
+
     private List<BrowserProbeTarget> GetDueProbeTargets(DateTimeOffset nowUtc)
     {
         lock (SyncRoot)
@@ -378,7 +430,7 @@ public sealed class BrowserWorkspace : IDisposable
                     var runtimeState = GetRuntimeState(view.Id);
                     if (runtimeState.TryBeginProbe(nowUtc, interval))
                     {
-                        targets.Add(new BrowserProbeTarget(view.Id, view.Url, Configuration.LinkRequestTimeoutSeconds));
+                        targets.Add(new BrowserProbeTarget(view.Id, view.Url, Configuration.LinkRequestTimeoutSeconds, view.ActOptimizations));
                     }
                 }
             }
@@ -387,13 +439,13 @@ public sealed class BrowserWorkspace : IDisposable
         }
     }
 
-    private void DrawView(BrowserViewWindowSnapshot snapshot)
+    private void DrawView(BrowserViewWindowSnapshot snapshot, BrowserViewportMetrics viewport)
     {
         var runtimeState = GetRuntimeState(snapshot.ViewId);
         var applyCondition = runtimeState.ConsumeForceLayoutApply() ? ImGuiCond.Always : ImGuiCond.Appearing;
 
-        ImGui.SetNextWindowPos(new Vector2(snapshot.PositionX, snapshot.PositionY), applyCondition);
-        ImGui.SetNextWindowSize(new Vector2(snapshot.Width, snapshot.Height), applyCondition);
+        ImGui.SetNextWindowPos(snapshot.Position, applyCondition);
+        ImGui.SetNextWindowSize(snapshot.Size, applyCondition);
 
         var flags = ImGuiWindowFlags.NoDecoration
             | ImGuiWindowFlags.NoBackground
@@ -436,7 +488,7 @@ public sealed class BrowserWorkspace : IDisposable
             ApplyActiveDrag(snapshot.ViewId, ref position);
         }
 
-        UpdateLayout(snapshot.ViewId, position, size, persistNow: !ImGui.IsMouseDown(0));
+        UpdateLayout(snapshot.ViewId, position, size, viewport, persistNow: !ImGui.IsMouseDown(0));
         var status = runtimeState.GetSnapshot();
         var surfaceLayout = snapshot.Locked
             ? new BrowserSurfaceLayout(ImGui.GetCursorScreenPos(), ImGui.GetContentRegionAvail())
@@ -453,6 +505,7 @@ public sealed class BrowserWorkspace : IDisposable
             snapshot.SoundEnabled,
             snapshot.PerformancePreset,
             Math.Clamp(snapshot.ZoomPercent / 100f, 0.25f, 5f),
+            Math.Clamp(snapshot.OpacityPercent / 100f, 0.01f, 1f),
             isWindowHovered,
             isWindowFocused,
             status,
@@ -462,7 +515,7 @@ public sealed class BrowserWorkspace : IDisposable
         ImGui.PopStyleVar();
     }
 
-    private void UpdateLayout(Guid viewId, Vector2 position, Vector2 size, bool persistNow)
+    private void UpdateLayout(Guid viewId, Vector2 position, Vector2 size, BrowserViewportMetrics viewport, bool persistNow)
     {
         lock (SyncRoot)
         {
@@ -500,6 +553,34 @@ public sealed class BrowserWorkspace : IDisposable
                 changed = true;
             }
 
+            var newPositionXPercent = ToPercent(position.X - viewport.Position.X, viewport.Size.X);
+            if (HasMeaningfulDifference(view.PositionXPercent, newPositionXPercent))
+            {
+                view.PositionXPercent = newPositionXPercent;
+                changed = true;
+            }
+
+            var newPositionYPercent = ToPercent(position.Y - viewport.Position.Y, viewport.Size.Y);
+            if (HasMeaningfulDifference(view.PositionYPercent, newPositionYPercent))
+            {
+                view.PositionYPercent = newPositionYPercent;
+                changed = true;
+            }
+
+            var newWidthPercent = ToPercent(newWidth, viewport.Size.X);
+            if (HasMeaningfulDifference(view.WidthPercent, newWidthPercent))
+            {
+                view.WidthPercent = newWidthPercent;
+                changed = true;
+            }
+
+            var newHeightPercent = ToPercent(newHeight, viewport.Size.Y);
+            if (HasMeaningfulDifference(view.HeightPercent, newHeightPercent))
+            {
+                view.HeightPercent = newHeightPercent;
+                changed = true;
+            }
+
             if (changed && persistNow)
             {
                 Configuration.Save();
@@ -510,6 +591,63 @@ public sealed class BrowserWorkspace : IDisposable
                 pendingLayoutSave = true;
             }
         }
+    }
+
+    private static BrowserViewportMetrics GetViewportMetrics()
+    {
+        var viewport = ImGui.GetMainViewport();
+        var position = viewport.WorkPos;
+        var size = viewport.WorkSize;
+        if (size.X <= 1f || size.Y <= 1f)
+        {
+            position = viewport.Pos;
+            size = viewport.Size;
+        }
+
+        size.X = MathF.Max(1f, size.X);
+        size.Y = MathF.Max(1f, size.Y);
+        return new BrowserViewportMetrics(position, size);
+    }
+
+    private static BrowserSurfaceLayout ResolveWindowLayout(BrowserViewConfig view, BrowserViewportMetrics viewport)
+    {
+        var width = ResolveDimension(view.WidthPercent, view.Width, viewport.Size.X, MinViewWidth);
+        var height = ResolveDimension(view.HeightPercent, view.Height, viewport.Size.Y, MinViewHeight);
+        var position = new Vector2(
+            ResolvePosition(view.PositionXPercent, view.PositionX, viewport.Position.X, viewport.Size.X, width),
+            ResolvePosition(view.PositionYPercent, view.PositionY, viewport.Position.Y, viewport.Size.Y, height));
+
+        return new BrowserSurfaceLayout(position, new Vector2(width, height));
+    }
+
+    private static float ResolveDimension(float percent, float absolute, float viewportSize, float minimumSize)
+    {
+        if (percent >= 0f)
+        {
+            return Math.Max(minimumSize, viewportSize * (percent / 100f));
+        }
+
+        return Math.Max(minimumSize, absolute);
+    }
+
+    private static float ResolvePosition(float percent, float absolute, float viewportStart, float viewportSize, float windowSize)
+    {
+        var position = percent >= 0f
+            ? viewportStart + (viewportSize * (percent / 100f))
+            : absolute;
+
+        var maxPosition = viewportStart + Math.Max(0f, viewportSize - MathF.Min(windowSize, viewportSize));
+        return Math.Clamp(position, viewportStart, maxPosition);
+    }
+
+    private static float ToPercent(float value, float referenceSize)
+    {
+        if (referenceSize <= 0.5f)
+        {
+            return 0f;
+        }
+
+        return Math.Clamp((value / referenceSize) * 100f, 0f, 100f);
     }
 
     private void SetViewVisibility(Guid viewId, bool isVisible)

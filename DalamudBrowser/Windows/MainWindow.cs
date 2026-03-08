@@ -34,6 +34,7 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextDisabled($"Renderer backend: {workspace.BackendName} | JavaScript: {(workspace.SupportsJavaScript ? "yes" : "not yet")}");
             ImGui.TextDisabled("Unlocked views can be moved by dragging the frame around the page and resized only from the corner handles.");
             ImGui.TextDisabled("The render window itself now stays page-only: no title bar, URL text or status text on top of the page.");
+            ImGui.TextDisabled("Layout is now tracked in viewport percentages so windowed/fullscreen transitions keep views aligned.");
             ImGui.Separator();
 
             if (ImGui.Button("Add Collection"))
@@ -210,10 +211,25 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
+        ImGui.SameLine();
+        var actOptimizations = view.ActOptimizations;
+        if (ImGui.Checkbox("ACT Recovery", ref actOptimizations))
+        {
+            view.ActOptimizations = actOptimizations;
+            changed = true;
+        }
+
         var zoomPercent = view.ZoomPercent;
         if (ImGui.SliderFloat("Zoom", ref zoomPercent, 25f, 500f, "%.0f%%"))
         {
             view.ZoomPercent = zoomPercent;
+            changed = true;
+        }
+
+        var opacityPercent = view.OpacityPercent;
+        if (ImGui.SliderFloat("Opacity", ref opacityPercent, 5f, 100f, "%.0f%%"))
+        {
+            view.OpacityPercent = opacityPercent;
             changed = true;
         }
 
@@ -248,7 +264,21 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextWrapped(status.LastError);
         }
 
-        ImGui.TextDisabled($"Layout: {view.Width:0}x{view.Height:0} @ {view.PositionX:0},{view.PositionY:0} | Zoom: {view.ZoomPercent:0}%");
+        ImGui.TextDisabled($"Layout(px): {view.Width:0}x{view.Height:0} @ {view.PositionX:0},{view.PositionY:0} | Zoom: {view.ZoomPercent:0}% | Opacity: {view.OpacityPercent:0}%");
+        if (HasRelativeLayout(view))
+        {
+            ImGui.TextDisabled($"Layout(%): {view.WidthPercent:0.0}% x {view.HeightPercent:0.0}% @ {view.PositionXPercent:0.0}%, {view.PositionYPercent:0.0}%");
+        }
+        else
+        {
+            ImGui.TextDisabled("Layout(%): will be captured automatically after the first rendered frame.");
+        }
+
+        if (view.ActOptimizations && BrowserUrlUtility.IsLikelyActOverlay(view.Url))
+        {
+            ImGui.TextDisabled("ACT recovery is enabled for this view: the plugin probes OVERLAY_WS and reloads the page after ACT comes back.");
+        }
+
         ImGui.TextDisabled("If the view is unlocked, drag the frame around the page to move it and use the corner handles to resize it.");
         ImGui.TextDisabled("Click-through only applies while the view is locked.");
 
@@ -302,5 +332,13 @@ public sealed class MainWindow : Window, IDisposable
             BrowserViewPerformancePreset.Eco => "Suspends hidden views and restores them when shown again to cut background cost.",
             _ => string.Empty,
         };
+    }
+
+    private static bool HasRelativeLayout(BrowserViewConfig view)
+    {
+        return view.PositionXPercent >= 0f
+            && view.PositionYPercent >= 0f
+            && view.WidthPercent >= 0f
+            && view.HeightPercent >= 0f;
     }
 }

@@ -13,12 +13,18 @@ public sealed class BrowserViewConfig
     public bool ClickThrough { get; set; }
     public bool SoundEnabled { get; set; } = true;
     public bool AutoRetry { get; set; } = true;
+    public bool ActOptimizations { get; set; } = true;
     public BrowserViewPerformancePreset PerformancePreset { get; set; } = BrowserViewPerformancePreset.Balanced;
     public float ZoomPercent { get; set; } = 100f;
+    public float OpacityPercent { get; set; } = 100f;
     public float PositionX { get; set; } = 220f;
     public float PositionY { get; set; } = 220f;
     public float Width { get; set; } = 640f;
     public float Height { get; set; } = 420f;
+    public float PositionXPercent { get; set; } = -1f;
+    public float PositionYPercent { get; set; } = -1f;
+    public float WidthPercent { get; set; } = -1f;
+    public float HeightPercent { get; set; } = -1f;
 
     public void EnsureInitialized()
     {
@@ -35,7 +41,17 @@ public sealed class BrowserViewConfig
         }
 
         ZoomPercent = Math.Clamp(ZoomPercent, 25f, 500f);
+        OpacityPercent = Math.Clamp(OpacityPercent, 1f, 100f);
         Width = Math.Max(320f, Width);
         Height = Math.Max(200f, Height);
+        PositionXPercent = NormalizePercent(PositionXPercent);
+        PositionYPercent = NormalizePercent(PositionYPercent);
+        WidthPercent = NormalizePercent(WidthPercent);
+        HeightPercent = NormalizePercent(HeightPercent);
+    }
+
+    private static float NormalizePercent(float value)
+    {
+        return value < 0f ? -1f : Math.Clamp(value, 0f, 100f);
     }
 }

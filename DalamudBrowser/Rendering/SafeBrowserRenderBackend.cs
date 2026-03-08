@@ -111,16 +111,17 @@ public sealed class SafeBrowserRenderBackend : IBrowserRenderBackend
         var size = new Vector2(
             MathF.Max(16f, request.SurfaceSize.X),
             MathF.Max(16f, request.SurfaceSize.Y));
+        var alpha = Math.Clamp(request.OpacityFactor, 0.01f, 1f);
 
         var drawList = ImGui.GetWindowDrawList();
         var min = ImGui.GetCursorScreenPos();
         var max = min + size;
-        drawList.AddRectFilled(min, max, ImGui.GetColorU32(new Vector4(0.09f, 0.08f, 0.08f, 1f)), 8f);
-        drawList.AddRect(min, max, ImGui.GetColorU32(new Vector4(0.62f, 0.24f, 0.24f, 1f)), 8f, 0, 1.4f);
-        drawList.AddText(min + new Vector2(14f, 12f), ImGui.GetColorU32(new Vector4(1f, 0.82f, 0.82f, 1f)), "Browser backend disabled");
+        drawList.AddRectFilled(min, max, ImGui.GetColorU32(new Vector4(0.09f, 0.08f, 0.08f, alpha)), 8f);
+        drawList.AddRect(min, max, ImGui.GetColorU32(new Vector4(0.62f, 0.24f, 0.24f, alpha)), 8f, 0, 1.4f);
+        drawList.AddText(min + new Vector2(14f, 12f), ImGui.GetColorU32(new Vector4(1f, 0.82f, 0.82f, alpha)), "Browser backend disabled");
         if (!string.IsNullOrWhiteSpace(failureMessage))
         {
-            drawList.AddText(min + new Vector2(14f, 34f), ImGui.GetColorU32(new Vector4(0.92f, 0.86f, 0.86f, 1f)), failureMessage);
+            drawList.AddText(min + new Vector2(14f, 34f), ImGui.GetColorU32(new Vector4(0.92f, 0.86f, 0.86f, alpha)), failureMessage);
         }
 
         ImGui.Dummy(size);

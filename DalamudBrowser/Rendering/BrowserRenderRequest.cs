@@ -13,6 +13,7 @@ public readonly record struct BrowserRenderRequest(
     bool SoundEnabled,
     BrowserViewPerformancePreset PerformancePreset,
     float ZoomFactor,
+    float OpacityFactor,
     bool IsWindowHovered,
     bool IsWindowFocused,
     BrowserViewStatusSnapshot Status,

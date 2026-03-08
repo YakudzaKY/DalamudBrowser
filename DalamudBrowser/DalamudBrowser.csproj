@@ -26,4 +26,15 @@
     <ProjectReference Include="..\DalamudBrowser.Common\DalamudBrowser.Common.csproj" />
     <ProjectReference Include="..\DalamudBrowser.Renderer\DalamudBrowser.Renderer.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <Target Name="CopyRendererArtifactsToPluginOutput" AfterTargets="Build">
+    <ItemGroup>
+      <RendererArtifactFiles Include="$(ProjectDir)bin\x64\$(Configuration)\renderer\**\*" />
+    </ItemGroup>
+
+    <Copy
+      SourceFiles="@(RendererArtifactFiles)"
+      DestinationFiles="@(RendererArtifactFiles->'$(OutputPath)renderer\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
 </Project>

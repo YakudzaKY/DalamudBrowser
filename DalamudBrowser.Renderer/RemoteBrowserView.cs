@@ -25,6 +25,7 @@ internal sealed class RemoteBrowserView : IDisposable
     private double? zoomLevel;
     private bool hidden = true;
     private int frameRate;
+    private int reloadGeneration = -1;
 
     public RemoteBrowserView(Guid viewId, string cacheRootPath)
     {
@@ -163,7 +164,7 @@ internal sealed class RemoteBrowserView : IDisposable
         ApplyHidden(command.Hidden);
         ApplyMute(command.Muted);
         ApplyZoom(command.ZoomFactor);
-        ApplyUrl(command.Url);
+        ApplyUrl(command.Url, command.ReloadGeneration);
     }
 
     private void ApplyHidden(bool nextHidden)
@@ -211,19 +212,21 @@ internal sealed class RemoteBrowserView : IDisposable
         browser.SetZoomLevel(nextLevel);
     }
 
-    private void ApplyUrl(string url)
+    private void ApplyUrl(string url, int nextReloadGeneration)
     {
         if (browser == null || !browser.IsBrowserInitialized || string.IsNullOrWhiteSpace(url))
         {
             return;
         }
 
-        if (string.Equals(liveUrl, url, StringComparison.Ordinal))
+        if (string.Equals(liveUrl, url, StringComparison.Ordinal)
+            && reloadGeneration == nextReloadGeneration)
         {
             return;
         }
 
         liveUrl = url;
+        reloadGeneration = nextReloadGeneration;
         browser.Load(url);
     }
 
@@ -247,5 +250,6 @@ internal sealed class RemoteBrowserView : IDisposable
         muted = null;
         zoomLevel = null;
         hidden = true;
+        reloadGeneration = -1;
     }
 }
