@@ -5,6 +5,7 @@ using DalamudBrowser.Rendering;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Numerics;
@@ -18,10 +19,6 @@ public sealed class BrowserWorkspace : IDisposable
     private enum BrowserResizeHandle
     {
         None,
-        Left,
-        Right,
-        Top,
-        Bottom,
         TopLeft,
         TopRight,
         BottomLeft,
@@ -36,6 +33,9 @@ public sealed class BrowserWorkspace : IDisposable
         string Url,
         bool Locked,
         bool ClickThrough,
+        bool SoundEnabled,
+        BrowserViewPerformancePreset PerformancePreset,
+        float ZoomPercent,
         float PositionX,
         float PositionY,
         float Width,
@@ -54,8 +54,12 @@ public sealed class BrowserWorkspace : IDisposable
     private readonly CancellationTokenSource disposeTokenSource = new();
     private readonly Task availabilityLoop;
     private readonly ConcurrentDictionary<Guid, BrowserViewRuntimeState> runtimeStates = new();
+    private bool pendingLayoutSave;
+    private Guid? activeDragViewId;
     private Guid? activeResizeViewId;
     private BrowserResizeHandle activeResizeHandle = BrowserResizeHandle.None;
+    private Vector2 dragStartMousePosition;
+    private Vector2 dragStartWindowPosition;
     private Vector2 resizeStartMousePosition;
     private Vector2 resizeStartWindowPosition;
     private Vector2 resizeStartWindowSize;
@@ -234,6 +238,9 @@ public sealed class BrowserWorkspace : IDisposable
                     view.Url,
                     view.Locked,
                     view.ClickThrough,
+                    view.SoundEnabled,
+                    view.PerformancePreset,
+                    view.ZoomPercent,
                     view.PositionX,
                     view.PositionY,
                     view.Width,
@@ -245,6 +252,22 @@ public sealed class BrowserWorkspace : IDisposable
             && (!ImGui.IsMouseDown(0) || !knownViewIds.Contains(activeResizeViewId.Value)))
         {
             EndResizeInteraction();
+        }
+
+        if (activeDragViewId.HasValue
+            && (!ImGui.IsMouseDown(0) || !knownViewIds.Contains(activeDragViewId.Value)))
+        {
+            EndDragInteraction();
+        }
+
+        if (!ImGui.IsMouseDown(0))
+        {
+            FlushPendingLayoutSave();
+        }
+
+        if (windows.Count == 0)
+        {
+            return;
         }
 
         renderBackend.BeginFrame(knownViewIds);
@@ -285,12 +308,39 @@ public sealed class BrowserWorkspace : IDisposable
 
     private async Task ProbeAsync(BrowserProbeTarget target, CancellationToken cancellationToken)
     {
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(target.TimeoutSeconds));
-
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, target.Url);
+            var normalizedUrl = BrowserUrlUtility.Normalize(target.Url);
+            if (!BrowserUrlUtility.TryCreateAbsoluteUri(normalizedUrl, out var uri))
+            {
+                GetRuntimeState(target.ViewId).MarkUnavailable(DateTimeOffset.UtcNow, "Invalid URL.");
+                return;
+            }
+
+            if (!BrowserUrlUtility.IsNavigableScheme(uri))
+            {
+                GetRuntimeState(target.ViewId).MarkUnavailable(DateTimeOffset.UtcNow, $"The '{uri.Scheme}' scheme is not supported.");
+                return;
+            }
+
+            if (uri.IsFile)
+            {
+                var localPath = uri.LocalPath;
+                if (File.Exists(localPath))
+                {
+                    GetRuntimeState(target.ViewId).MarkAvailable(DateTimeOffset.UtcNow);
+                }
+                else
+                {
+                    GetRuntimeState(target.ViewId).MarkUnavailable(DateTimeOffset.UtcNow, $"File not found: {localPath}");
+                }
+
+                return;
+            }
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(target.TimeoutSeconds));
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
 
             var nowUtc = DateTimeOffset.UtcNow;
@@ -345,11 +395,13 @@ public sealed class BrowserWorkspace : IDisposable
         ImGui.SetNextWindowPos(new Vector2(snapshot.PositionX, snapshot.PositionY), applyCondition);
         ImGui.SetNextWindowSize(new Vector2(snapshot.Width, snapshot.Height), applyCondition);
 
-        var flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
-        if (snapshot.Locked)
-        {
-            flags |= ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize;
-        }
+        var flags = ImGuiWindowFlags.NoDecoration
+            | ImGuiWindowFlags.NoBackground
+            | ImGuiWindowFlags.NoSavedSettings
+            | ImGuiWindowFlags.NoMove
+            | ImGuiWindowFlags.NoResize
+            | ImGuiWindowFlags.NoScrollbar
+            | ImGuiWindowFlags.NoScrollWithMouse;
 
         if (snapshot.Locked && snapshot.ClickThrough)
         {
@@ -357,15 +409,11 @@ public sealed class BrowserWorkspace : IDisposable
         }
 
         var windowTitle = string.IsNullOrWhiteSpace(snapshot.Title) ? "Browser View" : snapshot.Title;
-        var open = true;
-        if (!ImGui.Begin($"{windowTitle}##BrowserView-{snapshot.ViewId}", ref open, flags))
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        if (!ImGui.Begin($"##BrowserView-{snapshot.ViewId}", flags))
         {
             ImGui.End();
-            if (!open)
-            {
-                SetViewVisibility(snapshot.ViewId, false);
-            }
-
+            ImGui.PopStyleVar();
             return;
         }
 
@@ -377,22 +425,24 @@ public sealed class BrowserWorkspace : IDisposable
             EndResizeInteraction();
         }
 
+        if (snapshot.Locked && activeDragViewId == snapshot.ViewId)
+        {
+            EndDragInteraction();
+        }
+
         if (!snapshot.Locked)
         {
             ApplyActiveResize(snapshot.ViewId, ref position, ref size);
+            ApplyActiveDrag(snapshot.ViewId, ref position);
         }
 
         UpdateLayout(snapshot.ViewId, position, size, persistNow: !ImGui.IsMouseDown(0));
-
         var status = runtimeState.GetSnapshot();
-        ImGui.TextUnformatted(string.IsNullOrWhiteSpace(snapshot.Url) ? "No URL configured." : snapshot.Url);
-        ImGui.SameLine();
-        ImGui.TextColored(GetStatusColor(status.Availability), GetStatusText(status));
-        ImGui.Separator();
-
         var surfaceLayout = snapshot.Locked
             ? new BrowserSurfaceLayout(ImGui.GetCursorScreenPos(), ImGui.GetContentRegionAvail())
             : DrawUnlockedSurfaceChrome(snapshot.ViewId);
+        var isWindowHovered = ImGui.IsWindowHovered();
+        var isWindowFocused = ImGui.IsWindowFocused();
 
         renderBackend.Draw(new BrowserRenderRequest(
             snapshot.ViewId,
@@ -400,15 +450,16 @@ public sealed class BrowserWorkspace : IDisposable
             snapshot.Url,
             snapshot.Locked,
             snapshot.ClickThrough,
+            snapshot.SoundEnabled,
+            snapshot.PerformancePreset,
+            Math.Clamp(snapshot.ZoomPercent / 100f, 0.25f, 5f),
+            isWindowHovered,
+            isWindowFocused,
             status,
             surfaceLayout.Position,
             surfaceLayout.Size));
         ImGui.End();
-
-        if (!open)
-        {
-            SetViewVisibility(snapshot.ViewId, false);
-        }
+        ImGui.PopStyleVar();
     }
 
     private void UpdateLayout(Guid viewId, Vector2 position, Vector2 size, bool persistNow)
@@ -452,6 +503,11 @@ public sealed class BrowserWorkspace : IDisposable
             if (changed && persistNow)
             {
                 Configuration.Save();
+                pendingLayoutSave = false;
+            }
+            else if (changed)
+            {
+                pendingLayoutSave = true;
             }
         }
     }
@@ -553,11 +609,21 @@ public sealed class BrowserWorkspace : IDisposable
         DrawHandleVisuals(drawList, framePosition, frameSize, hoveredHandle, accentColor, outerColor);
 
         if (activeResizeViewId == null
+            && activeDragViewId == null
             && hoveredHandle != BrowserResizeHandle.None
             && ImGui.IsWindowHovered()
             && ImGui.IsMouseClicked(0))
         {
             BeginResizeInteraction(viewId, hoveredHandle);
+        }
+        else if (activeResizeViewId == null
+            && activeDragViewId == null
+            && hoveredHandle == BrowserResizeHandle.None
+            && IsMouseInDragRegion(framePosition, frameSize, surfacePosition, surfaceSize)
+            && ImGui.IsWindowHovered()
+            && ImGui.IsMouseClicked(0))
+        {
+            BeginDragInteraction(viewId);
         }
 
         SetResizeCursor(hoveredHandle);
@@ -589,6 +655,39 @@ public sealed class BrowserWorkspace : IDisposable
         size = nextSize;
         ImGui.SetWindowPos(nextPosition, ImGuiCond.Always);
         ImGui.SetWindowSize(nextSize, ImGuiCond.Always);
+    }
+
+    private void ApplyActiveDrag(Guid viewId, ref Vector2 position)
+    {
+        if (activeDragViewId != viewId)
+        {
+            return;
+        }
+
+        if (!ImGui.IsMouseDown(0))
+        {
+            EndDragInteraction();
+            return;
+        }
+
+        var delta = ImGui.GetIO().MousePos - dragStartMousePosition;
+        var nextPosition = dragStartWindowPosition + delta;
+        position = nextPosition;
+        ImGui.SetWindowPos(nextPosition, ImGuiCond.Always);
+    }
+
+    private void BeginDragInteraction(Guid viewId)
+    {
+        activeDragViewId = viewId;
+        dragStartMousePosition = ImGui.GetIO().MousePos;
+        dragStartWindowPosition = ImGui.GetWindowPos();
+    }
+
+    private void EndDragInteraction()
+    {
+        activeDragViewId = null;
+        dragStartMousePosition = Vector2.Zero;
+        dragStartWindowPosition = Vector2.Zero;
     }
 
     private void BeginResizeInteraction(Guid viewId, BrowserResizeHandle handle)
@@ -646,26 +745,6 @@ public sealed class BrowserWorkspace : IDisposable
             return BrowserResizeHandle.BottomRight;
         }
 
-        if (left)
-        {
-            return BrowserResizeHandle.Left;
-        }
-
-        if (right)
-        {
-            return BrowserResizeHandle.Right;
-        }
-
-        if (top)
-        {
-            return BrowserResizeHandle.Top;
-        }
-
-        if (bottom)
-        {
-            return BrowserResizeHandle.Bottom;
-        }
-
         return BrowserResizeHandle.None;
     }
 
@@ -678,27 +757,10 @@ public sealed class BrowserWorkspace : IDisposable
         uint outerColor)
     {
         var frameMax = framePosition + frameSize;
-        var leftCenter = new Vector2(framePosition.X + (SurfaceHandleThickness * 0.5f), framePosition.Y + (frameSize.Y * 0.5f));
-        var rightCenter = new Vector2(frameMax.X - (SurfaceHandleThickness * 0.5f), framePosition.Y + (frameSize.Y * 0.5f));
-        var topCenter = new Vector2(framePosition.X + (frameSize.X * 0.5f), framePosition.Y + (SurfaceHandleThickness * 0.5f));
-        var bottomCenter = new Vector2(framePosition.X + (frameSize.X * 0.5f), frameMax.Y - (SurfaceHandleThickness * 0.5f));
-
-        DrawHandleBar(drawList, leftCenter, new Vector2(HandleVisualThickness, 34f), hoveredHandle == BrowserResizeHandle.Left, accentColor, outerColor);
-        DrawHandleBar(drawList, rightCenter, new Vector2(HandleVisualThickness, 34f), hoveredHandle == BrowserResizeHandle.Right, accentColor, outerColor);
-        DrawHandleBar(drawList, topCenter, new Vector2(34f, HandleVisualThickness), hoveredHandle == BrowserResizeHandle.Top, accentColor, outerColor);
-        DrawHandleBar(drawList, bottomCenter, new Vector2(34f, HandleVisualThickness), hoveredHandle == BrowserResizeHandle.Bottom, accentColor, outerColor);
-
         DrawHandleCorner(drawList, framePosition + new Vector2(SurfaceHandleThickness * 0.5f, SurfaceHandleThickness * 0.5f), hoveredHandle == BrowserResizeHandle.TopLeft, accentColor, outerColor);
         DrawHandleCorner(drawList, new Vector2(frameMax.X - (SurfaceHandleThickness * 0.5f), framePosition.Y + (SurfaceHandleThickness * 0.5f)), hoveredHandle == BrowserResizeHandle.TopRight, accentColor, outerColor);
         DrawHandleCorner(drawList, new Vector2(framePosition.X + (SurfaceHandleThickness * 0.5f), frameMax.Y - (SurfaceHandleThickness * 0.5f)), hoveredHandle == BrowserResizeHandle.BottomLeft, accentColor, outerColor);
         DrawHandleCorner(drawList, frameMax - new Vector2(SurfaceHandleThickness * 0.5f, SurfaceHandleThickness * 0.5f), hoveredHandle == BrowserResizeHandle.BottomRight, accentColor, outerColor);
-    }
-
-    private static void DrawHandleBar(ImDrawListPtr drawList, Vector2 center, Vector2 size, bool hovered, uint accentColor, uint outerColor)
-    {
-        var color = hovered ? accentColor : outerColor;
-        var halfSize = size * 0.5f;
-        drawList.AddRectFilled(center - halfSize, center + halfSize, color, 2f);
     }
 
     private static void DrawHandleCorner(ImDrawListPtr drawList, Vector2 center, bool hovered, uint accentColor, uint outerColor)
@@ -717,20 +779,6 @@ public sealed class BrowserWorkspace : IDisposable
     {
         switch (handle)
         {
-            case BrowserResizeHandle.Left:
-                position.X += delta.X;
-                size.X -= delta.X;
-                break;
-            case BrowserResizeHandle.Right:
-                size.X += delta.X;
-                break;
-            case BrowserResizeHandle.Top:
-                position.Y += delta.Y;
-                size.Y -= delta.Y;
-                break;
-            case BrowserResizeHandle.Bottom:
-                size.Y += delta.Y;
-                break;
             case BrowserResizeHandle.TopLeft:
                 position.X += delta.X;
                 size.X -= delta.X;
@@ -779,17 +827,52 @@ public sealed class BrowserWorkspace : IDisposable
 
     private static bool AffectsLeftEdge(BrowserResizeHandle handle)
     {
-        return handle is BrowserResizeHandle.Left or BrowserResizeHandle.TopLeft or BrowserResizeHandle.BottomLeft;
+        return handle is BrowserResizeHandle.TopLeft or BrowserResizeHandle.BottomLeft;
     }
 
     private static bool AffectsTopEdge(BrowserResizeHandle handle)
     {
-        return handle is BrowserResizeHandle.Top or BrowserResizeHandle.TopLeft or BrowserResizeHandle.TopRight;
+        return handle is BrowserResizeHandle.TopLeft or BrowserResizeHandle.TopRight;
+    }
+
+    private static bool IsMouseInDragRegion(Vector2 framePosition, Vector2 frameSize, Vector2 surfacePosition, Vector2 surfaceSize)
+    {
+        var mousePosition = ImGui.GetIO().MousePos;
+        var frameMax = framePosition + frameSize;
+        if (mousePosition.X < framePosition.X
+            || mousePosition.X > frameMax.X
+            || mousePosition.Y < framePosition.Y
+            || mousePosition.Y > frameMax.Y)
+        {
+            return false;
+        }
+
+        var surfaceMax = surfacePosition + surfaceSize;
+        var insideSurface = mousePosition.X >= surfacePosition.X
+            && mousePosition.X <= surfaceMax.X
+            && mousePosition.Y >= surfacePosition.Y
+            && mousePosition.Y <= surfaceMax.Y;
+
+        return !insideSurface;
     }
 
     private static bool HasMeaningfulDifference(float current, float next)
     {
         return MathF.Abs(current - next) >= 0.5f;
+    }
+
+    private void FlushPendingLayoutSave()
+    {
+        lock (SyncRoot)
+        {
+            if (!pendingLayoutSave)
+            {
+                return;
+            }
+
+            Configuration.Save();
+            pendingLayoutSave = false;
+        }
     }
 
     private static Vector4 GetStatusColor(BrowserAvailabilityState state)

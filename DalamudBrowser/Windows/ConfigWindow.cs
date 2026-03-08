@@ -53,10 +53,10 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.TextUnformatted($"Current renderer backend: {workspace.BackendName}");
             ImGui.TextDisabled($"JavaScript support active: {(workspace.SupportsJavaScript ? "yes" : "no")}");
             ImGui.Spacing();
-            ImGui.TextWrapped("Current step uses a real WebView2 child host inside the game process, one instance per browser view.");
-            ImGui.TextWrapped("This is window-hosted browser content synced to the ImGui layout area. It is not texture compositing yet.");
-            ImGui.TextWrapped("Unlocked views expose resize handles around the browser surface so the child browser window does not block layout edits.");
-            ImGui.TextWrapped("If a later step needs a true texture-backed surface, that will require a different composition path.");
+            ImGui.TextWrapped("Current step uses an external CEF renderer process with offscreen rendering and shared D3D11 textures.");
+            ImGui.TextWrapped("Browser pages are composited into the game UI as textures, so the browser no longer owns an HWND inside the game process.");
+            ImGui.TextWrapped("Unlocked views expose only corner resize handles; the rest of the frame around the browser surface is used to drag the window.");
+            ImGui.TextWrapped("Keyboard focus is intentionally kept away from the browser surface so game keybinds stay with FFXIV.");
 
             if (changed)
             {

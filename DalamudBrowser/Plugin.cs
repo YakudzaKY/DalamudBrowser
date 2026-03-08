@@ -6,6 +6,7 @@ using Dalamud.Plugin.Services;
 using DalamudBrowser.Rendering;
 using DalamudBrowser.Services;
 using DalamudBrowser.Windows;
+using System;
 
 namespace DalamudBrowser;
 
@@ -30,7 +31,10 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.EnsureInitialized();
         Configuration.Save();
 
-        Workspace = new BrowserWorkspace(Configuration, Log, new WebView2WindowedRenderBackend(Log));
+        Workspace = new BrowserWorkspace(
+            Configuration,
+            Log,
+            new SafeBrowserRenderBackend(Log, new RemoteCefRenderBackend(PluginInterface, Log)));
 
         configWindow = new ConfigWindow(Workspace);
         mainWindow = new MainWindow(Workspace)
@@ -69,8 +73,18 @@ public sealed class Plugin : IDalamudPlugin
 
     private void DrawUi()
     {
-        Workspace.DrawViews();
-        WindowSystem.Draw();
+        try
+        {
+            Workspace.DrawViews();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Workspace view rendering failed.");
+        }
+        finally
+        {
+            WindowSystem.Draw();
+        }
     }
 
     private void OnCommand(string command, string args)

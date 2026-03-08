@@ -32,8 +32,8 @@ public sealed class MainWindow : Window, IDisposable
 
             ImGui.TextUnformatted("Collections contain zero or more browser views.");
             ImGui.TextDisabled($"Renderer backend: {workspace.BackendName} | JavaScript: {(workspace.SupportsJavaScript ? "yes" : "not yet")}");
-            ImGui.TextDisabled("Unlocked views can be moved by the title bar and resized from visible edge and corner handles around the browser surface.");
-            ImGui.TextDisabled("The browser surface is hosted as a child window inside the game process and synced to each view content area.");
+            ImGui.TextDisabled("Unlocked views can be moved by dragging the frame around the page and resized only from the corner handles.");
+            ImGui.TextDisabled("The render window itself now stays page-only: no title bar, URL text or status text on top of the page.");
             ImGui.Separator();
 
             if (ImGui.Button("Add Collection"))
@@ -195,12 +195,51 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
+        ImGui.SameLine();
+        var soundEnabled = view.SoundEnabled;
+        if (ImGui.Checkbox("Sound", ref soundEnabled))
+        {
+            view.SoundEnabled = soundEnabled;
+            changed = true;
+        }
+
         var autoRetry = view.AutoRetry;
         if (ImGui.Checkbox("Auto Retry", ref autoRetry))
         {
             view.AutoRetry = autoRetry;
             changed = true;
         }
+
+        var zoomPercent = view.ZoomPercent;
+        if (ImGui.SliderFloat("Zoom", ref zoomPercent, 25f, 500f, "%.0f%%"))
+        {
+            view.ZoomPercent = zoomPercent;
+            changed = true;
+        }
+
+        var performancePreset = view.PerformancePreset;
+        var performancePreview = GetPerformancePresetLabel(performancePreset);
+        if (ImGui.BeginCombo("Performance", performancePreview))
+        {
+            foreach (var preset in Enum.GetValues<BrowserViewPerformancePreset>())
+            {
+                var isSelected = preset == performancePreset;
+                if (ImGui.Selectable(GetPerformancePresetLabel(preset), isSelected))
+                {
+                    view.PerformancePreset = preset;
+                    changed = true;
+                }
+
+                if (isSelected)
+                {
+                    ImGui.SetItemDefaultFocus();
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        ImGui.TextDisabled(GetPerformancePresetDescription(view.PerformancePreset));
 
         var status = workspace.GetStatusSnapshot(view.Id);
         ImGui.TextColored(GetStatusColor(status.Availability), workspace.GetStatusText(status));
@@ -209,8 +248,8 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextWrapped(status.LastError);
         }
 
-        ImGui.TextDisabled($"Layout: {view.Width:0}x{view.Height:0} @ {view.PositionX:0},{view.PositionY:0}");
-        ImGui.TextDisabled("If the view is unlocked, drag the title bar to move it and use the edge or corner handles around the browser surface to resize it.");
+        ImGui.TextDisabled($"Layout: {view.Width:0}x{view.Height:0} @ {view.PositionX:0},{view.PositionY:0} | Zoom: {view.ZoomPercent:0}%");
+        ImGui.TextDisabled("If the view is unlocked, drag the frame around the page to move it and use the corner handles to resize it.");
         ImGui.TextDisabled("Click-through only applies while the view is locked.");
 
         if (ImGui.Button("Check Now"))
@@ -240,6 +279,28 @@ public sealed class MainWindow : Window, IDisposable
             BrowserAvailabilityState.Unavailable => new Vector4(0.95f, 0.4f, 0.35f, 1f),
             BrowserAvailabilityState.Checking => new Vector4(0.4f, 0.75f, 1f, 1f),
             _ => new Vector4(0.85f, 0.85f, 0.4f, 1f),
+        };
+    }
+
+    private static string GetPerformancePresetLabel(BrowserViewPerformancePreset preset)
+    {
+        return preset switch
+        {
+            BrowserViewPerformancePreset.Responsive => "Responsive",
+            BrowserViewPerformancePreset.Balanced => "Balanced",
+            BrowserViewPerformancePreset.Eco => "Eco",
+            _ => "Balanced",
+        };
+    }
+
+    private static string GetPerformancePresetDescription(BrowserViewPerformancePreset preset)
+    {
+        return preset switch
+        {
+            BrowserViewPerformancePreset.Responsive => "Keeps the browser fully active for the lowest interaction latency.",
+            BrowserViewPerformancePreset.Balanced => "Keeps active views fast and lowers memory pressure when the view is not being used.",
+            BrowserViewPerformancePreset.Eco => "Suspends hidden views and restores them when shown again to cut background cost.",
+            _ => string.Empty,
         };
     }
 }

@@ -10,6 +10,11 @@ public readonly record struct BrowserRenderRequest(
     string Url,
     bool Locked,
     bool ClickThrough,
+    bool SoundEnabled,
+    BrowserViewPerformancePreset PerformancePreset,
+    float ZoomFactor,
+    bool IsWindowHovered,
+    bool IsWindowFocused,
     BrowserViewStatusSnapshot Status,
     Vector2 SurfacePosition,
     Vector2 SurfaceSize);
