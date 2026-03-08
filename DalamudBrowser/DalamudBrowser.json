@@ -1,0 +1,12 @@
+{
+  "Author": "Yakudza_KY",
+  "Name": "Dalamud Browser",
+  "Punchline": "Starter plugin scaffold based on GoatCorp's Dalamud template.",
+  "Description": "Starter scaffold for a Dalamud plugin repository. Current sample slash command: /dbrowser.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "dalamud",
+    "template",
+    "starter"
+  ]
+}
