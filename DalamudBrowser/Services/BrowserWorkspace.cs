@@ -15,7 +15,21 @@ namespace DalamudBrowser.Services;
 
 public sealed class BrowserWorkspace : IDisposable
 {
+    private enum BrowserResizeHandle
+    {
+        None,
+        Left,
+        Right,
+        Top,
+        Bottom,
+        TopLeft,
+        TopRight,
+        BottomLeft,
+        BottomRight,
+    }
+
     private readonly record struct BrowserProbeTarget(Guid ViewId, string Url, int TimeoutSeconds);
+    private readonly record struct BrowserSurfaceLayout(Vector2 Position, Vector2 Size);
     private readonly record struct BrowserViewWindowSnapshot(
         Guid ViewId,
         string Title,
@@ -27,12 +41,24 @@ public sealed class BrowserWorkspace : IDisposable
         float Width,
         float Height);
 
+    private const float MinViewWidth = 320f;
+    private const float MinViewHeight = 200f;
+    private const float SurfaceHandlePadding = 12f;
+    private const float SurfaceHandleThickness = 10f;
+    private const float HandleVisualThickness = 3f;
+    private const float HandleCornerSize = 18f;
+
     private readonly IPluginLog log;
     private readonly IBrowserRenderBackend renderBackend;
     private readonly HttpClient httpClient;
     private readonly CancellationTokenSource disposeTokenSource = new();
     private readonly Task availabilityLoop;
     private readonly ConcurrentDictionary<Guid, BrowserViewRuntimeState> runtimeStates = new();
+    private Guid? activeResizeViewId;
+    private BrowserResizeHandle activeResizeHandle = BrowserResizeHandle.None;
+    private Vector2 resizeStartMousePosition;
+    private Vector2 resizeStartWindowPosition;
+    private Vector2 resizeStartWindowSize;
 
     public BrowserWorkspace(Configuration configuration, IPluginLog log, IBrowserRenderBackend renderBackend)
     {
@@ -187,10 +213,16 @@ public sealed class BrowserWorkspace : IDisposable
     public void DrawViews()
     {
         List<BrowserViewWindowSnapshot> windows;
+        List<Guid> knownViewIds;
         lock (SyncRoot)
         {
             Configuration.EnsureInitialized();
             SyncRuntimeStatesLocked();
+
+            knownViewIds = Configuration.Collections
+                .SelectMany(collection => collection.Views)
+                .Select(view => view.Id)
+                .ToList();
 
             windows = Configuration.Collections
                 .Where(collection => collection.IsEnabled)
@@ -209,9 +241,23 @@ public sealed class BrowserWorkspace : IDisposable
                 .ToList();
         }
 
-        foreach (var window in windows)
+        if (activeResizeViewId.HasValue
+            && (!ImGui.IsMouseDown(0) || !knownViewIds.Contains(activeResizeViewId.Value)))
         {
-            DrawView(window);
+            EndResizeInteraction();
+        }
+
+        renderBackend.BeginFrame(knownViewIds);
+        try
+        {
+            foreach (var window in windows)
+            {
+                DrawView(window);
+            }
+        }
+        finally
+        {
+            renderBackend.EndFrame();
         }
     }
 
@@ -325,6 +371,17 @@ public sealed class BrowserWorkspace : IDisposable
 
         var position = ImGui.GetWindowPos();
         var size = ImGui.GetWindowSize();
+
+        if (snapshot.Locked && activeResizeViewId == snapshot.ViewId)
+        {
+            EndResizeInteraction();
+        }
+
+        if (!snapshot.Locked)
+        {
+            ApplyActiveResize(snapshot.ViewId, ref position, ref size);
+        }
+
         UpdateLayout(snapshot.ViewId, position, size, persistNow: !ImGui.IsMouseDown(0));
 
         var status = runtimeState.GetSnapshot();
@@ -333,7 +390,19 @@ public sealed class BrowserWorkspace : IDisposable
         ImGui.TextColored(GetStatusColor(status.Availability), GetStatusText(status));
         ImGui.Separator();
 
-        renderBackend.Draw(snapshot.Url, status, ImGui.GetContentRegionAvail());
+        var surfaceLayout = snapshot.Locked
+            ? new BrowserSurfaceLayout(ImGui.GetCursorScreenPos(), ImGui.GetContentRegionAvail())
+            : DrawUnlockedSurfaceChrome(snapshot.ViewId);
+
+        renderBackend.Draw(new BrowserRenderRequest(
+            snapshot.ViewId,
+            windowTitle,
+            snapshot.Url,
+            snapshot.Locked,
+            snapshot.ClickThrough,
+            status,
+            surfaceLayout.Position,
+            surfaceLayout.Size));
         ImGui.End();
 
         if (!open)
@@ -366,14 +435,14 @@ public sealed class BrowserWorkspace : IDisposable
                 changed = true;
             }
 
-            var newWidth = Math.Max(320f, size.X);
+            var newWidth = Math.Max(MinViewWidth, size.X);
             if (HasMeaningfulDifference(view.Width, newWidth))
             {
                 view.Width = newWidth;
                 changed = true;
             }
 
-            var newHeight = Math.Max(200f, size.Y);
+            var newHeight = Math.Max(MinViewHeight, size.Y);
             if (HasMeaningfulDifference(view.Height, newHeight))
             {
                 view.Height = newHeight;
@@ -446,6 +515,276 @@ public sealed class BrowserWorkspace : IDisposable
     private BrowserViewRuntimeState GetRuntimeState(Guid viewId)
     {
         return runtimeStates.GetOrAdd(viewId, _ => new BrowserViewRuntimeState());
+    }
+
+    private BrowserSurfaceLayout DrawUnlockedSurfaceChrome(Guid viewId)
+    {
+        var framePosition = ImGui.GetCursorScreenPos();
+        var frameSize = ImGui.GetContentRegionAvail();
+        frameSize.X = Math.Max(frameSize.X, SurfaceHandlePadding * 2f + 32f);
+        frameSize.Y = Math.Max(frameSize.Y, SurfaceHandlePadding * 2f + 32f);
+
+        var surfacePosition = framePosition + new Vector2(SurfaceHandlePadding, SurfaceHandlePadding);
+        var surfaceSize = new Vector2(
+            Math.Max(32f, frameSize.X - (SurfaceHandlePadding * 2f)),
+            Math.Max(32f, frameSize.Y - (SurfaceHandlePadding * 2f)));
+
+        var drawList = ImGui.GetWindowDrawList();
+        var outerMin = framePosition;
+        var outerMax = framePosition + frameSize;
+        var innerMin = surfacePosition;
+        var innerMax = surfacePosition + surfaceSize;
+
+        var outerColor = ImGui.GetColorU32(new Vector4(0.16f, 0.2f, 0.25f, 0.9f));
+        var innerColor = ImGui.GetColorU32(new Vector4(0.32f, 0.55f, 0.8f, 0.75f));
+        var accentColor = ImGui.GetColorU32(new Vector4(0.6f, 0.82f, 1f, 0.95f));
+        var fillColor = ImGui.GetColorU32(new Vector4(0.08f, 0.11f, 0.16f, 0.3f));
+
+        drawList.AddRectFilled(outerMin, outerMax, fillColor, 10f);
+        drawList.AddRect(outerMin, outerMax, outerColor, 10f, 0, 1.5f);
+        drawList.AddRect(innerMin, innerMax, innerColor, 8f, 0, 1.5f);
+
+        var hoveredHandle = GetHoveredResizeHandle(framePosition, frameSize);
+        if (activeResizeViewId == viewId)
+        {
+            hoveredHandle = activeResizeHandle;
+        }
+
+        DrawHandleVisuals(drawList, framePosition, frameSize, hoveredHandle, accentColor, outerColor);
+
+        if (activeResizeViewId == null
+            && hoveredHandle != BrowserResizeHandle.None
+            && ImGui.IsWindowHovered()
+            && ImGui.IsMouseClicked(0))
+        {
+            BeginResizeInteraction(viewId, hoveredHandle);
+        }
+
+        SetResizeCursor(hoveredHandle);
+        ImGui.SetCursorScreenPos(surfacePosition);
+        return new BrowserSurfaceLayout(surfacePosition, surfaceSize);
+    }
+
+    private void ApplyActiveResize(Guid viewId, ref Vector2 position, ref Vector2 size)
+    {
+        if (activeResizeViewId != viewId)
+        {
+            return;
+        }
+
+        if (!ImGui.IsMouseDown(0))
+        {
+            EndResizeInteraction();
+            return;
+        }
+
+        var delta = ImGui.GetIO().MousePos - resizeStartMousePosition;
+        var nextPosition = resizeStartWindowPosition;
+        var nextSize = resizeStartWindowSize;
+
+        ApplyResizeDelta(activeResizeHandle, delta, ref nextPosition, ref nextSize);
+        ClampResizedWindow(activeResizeHandle, ref nextPosition, ref nextSize);
+
+        position = nextPosition;
+        size = nextSize;
+        ImGui.SetWindowPos(nextPosition, ImGuiCond.Always);
+        ImGui.SetWindowSize(nextSize, ImGuiCond.Always);
+    }
+
+    private void BeginResizeInteraction(Guid viewId, BrowserResizeHandle handle)
+    {
+        activeResizeViewId = viewId;
+        activeResizeHandle = handle;
+        resizeStartMousePosition = ImGui.GetIO().MousePos;
+        resizeStartWindowPosition = ImGui.GetWindowPos();
+        resizeStartWindowSize = ImGui.GetWindowSize();
+    }
+
+    private void EndResizeInteraction()
+    {
+        activeResizeViewId = null;
+        activeResizeHandle = BrowserResizeHandle.None;
+        resizeStartMousePosition = Vector2.Zero;
+        resizeStartWindowPosition = Vector2.Zero;
+        resizeStartWindowSize = Vector2.Zero;
+    }
+
+    private static BrowserResizeHandle GetHoveredResizeHandle(Vector2 framePosition, Vector2 frameSize)
+    {
+        var mousePosition = ImGui.GetIO().MousePos;
+        var frameMax = framePosition + frameSize;
+        if (mousePosition.X < framePosition.X
+            || mousePosition.X > frameMax.X
+            || mousePosition.Y < framePosition.Y
+            || mousePosition.Y > frameMax.Y)
+        {
+            return BrowserResizeHandle.None;
+        }
+
+        var left = mousePosition.X <= framePosition.X + SurfaceHandleThickness;
+        var right = mousePosition.X >= frameMax.X - SurfaceHandleThickness;
+        var top = mousePosition.Y <= framePosition.Y + SurfaceHandleThickness;
+        var bottom = mousePosition.Y >= frameMax.Y - SurfaceHandleThickness;
+
+        if (left && top)
+        {
+            return BrowserResizeHandle.TopLeft;
+        }
+
+        if (right && top)
+        {
+            return BrowserResizeHandle.TopRight;
+        }
+
+        if (left && bottom)
+        {
+            return BrowserResizeHandle.BottomLeft;
+        }
+
+        if (right && bottom)
+        {
+            return BrowserResizeHandle.BottomRight;
+        }
+
+        if (left)
+        {
+            return BrowserResizeHandle.Left;
+        }
+
+        if (right)
+        {
+            return BrowserResizeHandle.Right;
+        }
+
+        if (top)
+        {
+            return BrowserResizeHandle.Top;
+        }
+
+        if (bottom)
+        {
+            return BrowserResizeHandle.Bottom;
+        }
+
+        return BrowserResizeHandle.None;
+    }
+
+    private static void DrawHandleVisuals(
+        ImDrawListPtr drawList,
+        Vector2 framePosition,
+        Vector2 frameSize,
+        BrowserResizeHandle hoveredHandle,
+        uint accentColor,
+        uint outerColor)
+    {
+        var frameMax = framePosition + frameSize;
+        var leftCenter = new Vector2(framePosition.X + (SurfaceHandleThickness * 0.5f), framePosition.Y + (frameSize.Y * 0.5f));
+        var rightCenter = new Vector2(frameMax.X - (SurfaceHandleThickness * 0.5f), framePosition.Y + (frameSize.Y * 0.5f));
+        var topCenter = new Vector2(framePosition.X + (frameSize.X * 0.5f), framePosition.Y + (SurfaceHandleThickness * 0.5f));
+        var bottomCenter = new Vector2(framePosition.X + (frameSize.X * 0.5f), frameMax.Y - (SurfaceHandleThickness * 0.5f));
+
+        DrawHandleBar(drawList, leftCenter, new Vector2(HandleVisualThickness, 34f), hoveredHandle == BrowserResizeHandle.Left, accentColor, outerColor);
+        DrawHandleBar(drawList, rightCenter, new Vector2(HandleVisualThickness, 34f), hoveredHandle == BrowserResizeHandle.Right, accentColor, outerColor);
+        DrawHandleBar(drawList, topCenter, new Vector2(34f, HandleVisualThickness), hoveredHandle == BrowserResizeHandle.Top, accentColor, outerColor);
+        DrawHandleBar(drawList, bottomCenter, new Vector2(34f, HandleVisualThickness), hoveredHandle == BrowserResizeHandle.Bottom, accentColor, outerColor);
+
+        DrawHandleCorner(drawList, framePosition + new Vector2(SurfaceHandleThickness * 0.5f, SurfaceHandleThickness * 0.5f), hoveredHandle == BrowserResizeHandle.TopLeft, accentColor, outerColor);
+        DrawHandleCorner(drawList, new Vector2(frameMax.X - (SurfaceHandleThickness * 0.5f), framePosition.Y + (SurfaceHandleThickness * 0.5f)), hoveredHandle == BrowserResizeHandle.TopRight, accentColor, outerColor);
+        DrawHandleCorner(drawList, new Vector2(framePosition.X + (SurfaceHandleThickness * 0.5f), frameMax.Y - (SurfaceHandleThickness * 0.5f)), hoveredHandle == BrowserResizeHandle.BottomLeft, accentColor, outerColor);
+        DrawHandleCorner(drawList, frameMax - new Vector2(SurfaceHandleThickness * 0.5f, SurfaceHandleThickness * 0.5f), hoveredHandle == BrowserResizeHandle.BottomRight, accentColor, outerColor);
+    }
+
+    private static void DrawHandleBar(ImDrawListPtr drawList, Vector2 center, Vector2 size, bool hovered, uint accentColor, uint outerColor)
+    {
+        var color = hovered ? accentColor : outerColor;
+        var halfSize = size * 0.5f;
+        drawList.AddRectFilled(center - halfSize, center + halfSize, color, 2f);
+    }
+
+    private static void DrawHandleCorner(ImDrawListPtr drawList, Vector2 center, bool hovered, uint accentColor, uint outerColor)
+    {
+        var color = hovered ? accentColor : outerColor;
+        var halfSize = new Vector2(HandleCornerSize * 0.5f, HandleCornerSize * 0.5f);
+        drawList.AddRectFilled(center - halfSize, center + halfSize, color, 4f);
+    }
+
+    private static void SetResizeCursor(BrowserResizeHandle handle)
+    {
+        _ = handle;
+    }
+
+    private static void ApplyResizeDelta(BrowserResizeHandle handle, Vector2 delta, ref Vector2 position, ref Vector2 size)
+    {
+        switch (handle)
+        {
+            case BrowserResizeHandle.Left:
+                position.X += delta.X;
+                size.X -= delta.X;
+                break;
+            case BrowserResizeHandle.Right:
+                size.X += delta.X;
+                break;
+            case BrowserResizeHandle.Top:
+                position.Y += delta.Y;
+                size.Y -= delta.Y;
+                break;
+            case BrowserResizeHandle.Bottom:
+                size.Y += delta.Y;
+                break;
+            case BrowserResizeHandle.TopLeft:
+                position.X += delta.X;
+                size.X -= delta.X;
+                position.Y += delta.Y;
+                size.Y -= delta.Y;
+                break;
+            case BrowserResizeHandle.TopRight:
+                size.X += delta.X;
+                position.Y += delta.Y;
+                size.Y -= delta.Y;
+                break;
+            case BrowserResizeHandle.BottomLeft:
+                position.X += delta.X;
+                size.X -= delta.X;
+                size.Y += delta.Y;
+                break;
+            case BrowserResizeHandle.BottomRight:
+                size.X += delta.X;
+                size.Y += delta.Y;
+                break;
+        }
+    }
+
+    private void ClampResizedWindow(BrowserResizeHandle handle, ref Vector2 position, ref Vector2 size)
+    {
+        if (size.X < MinViewWidth)
+        {
+            if (AffectsLeftEdge(handle))
+            {
+                position.X = resizeStartWindowPosition.X + (resizeStartWindowSize.X - MinViewWidth);
+            }
+
+            size.X = MinViewWidth;
+        }
+
+        if (size.Y < MinViewHeight)
+        {
+            if (AffectsTopEdge(handle))
+            {
+                position.Y = resizeStartWindowPosition.Y + (resizeStartWindowSize.Y - MinViewHeight);
+            }
+
+            size.Y = MinViewHeight;
+        }
+    }
+
+    private static bool AffectsLeftEdge(BrowserResizeHandle handle)
+    {
+        return handle is BrowserResizeHandle.Left or BrowserResizeHandle.TopLeft or BrowserResizeHandle.BottomLeft;
+    }
+
+    private static bool AffectsTopEdge(BrowserResizeHandle handle)
+    {
+        return handle is BrowserResizeHandle.Top or BrowserResizeHandle.TopLeft or BrowserResizeHandle.TopRight;
     }
 
     private static bool HasMeaningfulDifference(float current, float next)

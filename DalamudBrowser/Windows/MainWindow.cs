@@ -32,7 +32,8 @@ public sealed class MainWindow : Window, IDisposable
 
             ImGui.TextUnformatted("Collections contain zero or more browser views.");
             ImGui.TextDisabled($"Renderer backend: {workspace.BackendName} | JavaScript: {(workspace.SupportsJavaScript ? "yes" : "not yet")}");
-            ImGui.TextDisabled("Unlocked views can be moved and resized using the ImGui frame. Click-through is applied when a view is locked.");
+            ImGui.TextDisabled("Unlocked views can be moved by the title bar and resized from visible edge and corner handles around the browser surface.");
+            ImGui.TextDisabled("The browser surface is hosted as a child window inside the game process and synced to each view content area.");
             ImGui.Separator();
 
             if (ImGui.Button("Add Collection"))
@@ -209,7 +210,8 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         ImGui.TextDisabled($"Layout: {view.Width:0}x{view.Height:0} @ {view.PositionX:0},{view.PositionY:0}");
-        ImGui.TextDisabled("If the view is unlocked, use the ImGui frame to drag and resize it. Click-through only applies while locked.");
+        ImGui.TextDisabled("If the view is unlocked, drag the title bar to move it and use the edge or corner handles around the browser surface to resize it.");
+        ImGui.TextDisabled("Click-through only applies while the view is locked.");
 
         if (ImGui.Button("Check Now"))
         {

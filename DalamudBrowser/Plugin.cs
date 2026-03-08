@@ -30,7 +30,7 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.EnsureInitialized();
         Configuration.Save();
 
-        Workspace = new BrowserWorkspace(Configuration, Log, new PlaceholderBrowserRenderBackend());
+        Workspace = new BrowserWorkspace(Configuration, Log, new WebView2WindowedRenderBackend(Log));
 
         configWindow = new ConfigWindow(Workspace);
         mainWindow = new MainWindow(Workspace)

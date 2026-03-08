@@ -53,9 +53,10 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.TextUnformatted($"Current renderer backend: {workspace.BackendName}");
             ImGui.TextDisabled($"JavaScript support active: {(workspace.SupportsJavaScript ? "yes" : "no")}");
             ImGui.Spacing();
-            ImGui.TextWrapped("Practical production choice for real HTML/JS rendering inside the game process: Chromium Embedded Framework in off-screen rendering mode (CEF OSR).");
-            ImGui.TextWrapped("This plugin currently wires the workspace, layout, retry and interaction model first, while the actual browser engine remains behind a backend abstraction.");
-            ImGui.TextWrapped("WebView2 is a weaker fit for an ImGui texture surface, and Ultralight would require more custom native integration here than CEF OSR.");
+            ImGui.TextWrapped("Current step uses a real WebView2 child host inside the game process, one instance per browser view.");
+            ImGui.TextWrapped("This is window-hosted browser content synced to the ImGui layout area. It is not texture compositing yet.");
+            ImGui.TextWrapped("Unlocked views expose resize handles around the browser surface so the child browser window does not block layout edits.");
+            ImGui.TextWrapped("If a later step needs a true texture-backed surface, that will require a different composition path.");
 
             if (changed)
             {

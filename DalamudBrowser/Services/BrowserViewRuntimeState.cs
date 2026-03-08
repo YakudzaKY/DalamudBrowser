@@ -32,7 +32,11 @@ public sealed class BrowserViewRuntimeState
             }
 
             isChecking = true;
-            availability = BrowserAvailabilityState.Checking;
+            if (availability == BrowserAvailabilityState.Unknown)
+            {
+                availability = BrowserAvailabilityState.Checking;
+            }
+
             lastError = null;
             nextProbeUtc = nowUtc + interval;
             return true;

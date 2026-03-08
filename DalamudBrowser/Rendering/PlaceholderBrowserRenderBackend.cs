@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
@@ -12,26 +14,28 @@ public sealed class PlaceholderBrowserRenderBackend : IBrowserRenderBackend
 
     public void Dispose() { }
 
-    public void Draw(string url, BrowserViewStatusSnapshot status, Vector2 availableSize)
+    public void BeginFrame(IReadOnlyCollection<Guid> knownViewIds) { }
+
+    public void Draw(BrowserRenderRequest request)
     {
-        using var child = ImRaii.Child("BrowserSurface", availableSize, true);
+        using var child = ImRaii.Child($"BrowserSurface-{request.ViewId}", request.SurfaceSize, true);
         if (!child.Success)
         {
             return;
         }
 
-        ImGui.TextUnformatted(string.IsNullOrWhiteSpace(url) ? "No URL configured." : url);
-        ImGui.TextColored(GetStatusColor(status.Availability), GetStatusLabel(status));
+        ImGui.TextUnformatted(string.IsNullOrWhiteSpace(request.Url) ? "No URL configured." : request.Url);
+        ImGui.TextColored(GetStatusColor(request.Status.Availability), GetStatusLabel(request.Status));
 
-        if (status.LastAvailableUtc.HasValue)
+        if (request.Status.LastAvailableUtc.HasValue)
         {
-            ImGui.TextDisabled($"Last reachable: {status.LastAvailableUtc.Value.ToLocalTime():T}");
+            ImGui.TextDisabled($"Last reachable: {request.Status.LastAvailableUtc.Value.ToLocalTime():T}");
         }
 
-        if (!string.IsNullOrWhiteSpace(status.LastError))
+        if (!string.IsNullOrWhiteSpace(request.Status.LastError))
         {
             ImGui.Spacing();
-            ImGui.TextWrapped(status.LastError);
+            ImGui.TextWrapped(request.Status.LastError);
         }
 
         ImGui.Spacing();
@@ -39,6 +43,8 @@ public sealed class PlaceholderBrowserRenderBackend : IBrowserRenderBackend
         ImGui.TextWrapped("The actual HTML/JavaScript surface is not connected yet.");
         ImGui.TextWrapped("Recommended production backend: CEF off-screen rendering (OSR).");
     }
+
+    public void EndFrame() { }
 
     private static string GetStatusLabel(BrowserViewStatusSnapshot status)
     {
