@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DalamudBrowser.Common", "Da
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DalamudBrowser.Renderer", "DalamudBrowser.Renderer\DalamudBrowser.Renderer.csproj", "{EBBFDD50-D522-486B-8F23-D4613FBC723E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DalamudBrowser.Tests", "DalamudBrowser.Tests\DalamudBrowser.Tests.csproj", "{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -55,6 +57,18 @@ Global
 		{EBBFDD50-D522-486B-8F23-D4613FBC723E}.Release|Any CPU.Build.0 = Release|Any CPU
 		{EBBFDD50-D522-486B-8F23-D4613FBC723E}.Release|x86.ActiveCfg = Release|Any CPU
 		{EBBFDD50-D522-486B-8F23-D4613FBC723E}.Release|x86.Build.0 = Release|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Debug|x64.Build.0 = Debug|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Debug|x86.Build.0 = Debug|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Release|x64.ActiveCfg = Release|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Release|x64.Build.0 = Release|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Release|x86.ActiveCfg = Release|Any CPU
+		{9FB4BFEF-2F04-4524-BE89-6F86570C13A7}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
