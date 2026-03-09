@@ -53,9 +53,9 @@ The project is not a generic website browser yet. The current target is passive 
   - `build.bat All`
 - Default build mode in `build.bat` is `Release`.
 - Main dev plugin DLL:
-  - `D:\git\AI REPOS\DalamudBrowser\DalamudBrowser\bin\Release\DalamudBrowser.dll`
+  - `D:\git\AI REPOS\DalamudBrowser\DalamudBrowser\bin\x64\Release\DalamudBrowser.dll`
 - The plugin must have a sibling renderer directory:
-  - `D:\git\AI REPOS\DalamudBrowser\DalamudBrowser\bin\Release\renderer\`
+  - `D:\git\AI REPOS\DalamudBrowser\DalamudBrowser\bin\x64\Release\renderer\`
 
 Do not point Dalamud at `DalamudBrowser.Common.dll` or any DLL inside the renderer folder.
 
@@ -70,8 +70,8 @@ Do not point Dalamud at `DalamudBrowser.Common.dll` or any DLL inside the render
   - `libcef.dll`
   - `locales\...`
 - If you touch renderer packaging or output paths, verify both:
-  - `DalamudBrowser\bin\Release\DalamudBrowser.dll`
-  - `DalamudBrowser\bin\Release\renderer\...`
+  - `DalamudBrowser\bin\x64\Release\DalamudBrowser.dll`
+  - `DalamudBrowser\bin\x64\Release\renderer\...`
 
 ## Current Product Constraints
 
