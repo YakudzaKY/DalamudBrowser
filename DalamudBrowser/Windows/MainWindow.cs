@@ -255,7 +255,42 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.EndCombo();
         }
 
-        ImGui.TextDisabled(GetPerformancePresetDescription(view.PerformancePreset));
+        var useCustomFrameRates = view.UseCustomFrameRates;
+        if (ImGui.Checkbox("Custom FPS", ref useCustomFrameRates))
+        {
+            view.UseCustomFrameRates = useCustomFrameRates;
+            changed = true;
+        }
+
+        if (view.UseCustomFrameRates)
+        {
+            var interactiveFrameRate = view.InteractiveFrameRate <= 0 ? 30 : view.InteractiveFrameRate;
+            if (ImGui.SliderInt("Interactive FPS", ref interactiveFrameRate, 1, 60))
+            {
+                view.InteractiveFrameRate = interactiveFrameRate;
+                changed = true;
+            }
+
+            var passiveFrameRate = view.PassiveFrameRate <= 0 ? 15 : view.PassiveFrameRate;
+            if (ImGui.SliderInt("Passive FPS", ref passiveFrameRate, 1, 60))
+            {
+                view.PassiveFrameRate = passiveFrameRate;
+                changed = true;
+            }
+
+            var hiddenFrameRate = view.HiddenFrameRate <= 0 ? 5 : view.HiddenFrameRate;
+            if (ImGui.SliderInt("Hidden FPS", ref hiddenFrameRate, 1, 30))
+            {
+                view.HiddenFrameRate = hiddenFrameRate;
+                changed = true;
+            }
+        }
+
+        ImGui.TextDisabled(GetPerformancePresetDescription(view.PerformancePreset, view.ActOptimizations && BrowserUrlUtility.IsLikelyActOverlay(view.Url)));
+        if (view.UseCustomFrameRates)
+        {
+            ImGui.TextDisabled($"Custom FPS: active {Math.Max(1, view.InteractiveFrameRate <= 0 ? 30 : view.InteractiveFrameRate)}, passive {Math.Max(1, view.PassiveFrameRate <= 0 ? 15 : view.PassiveFrameRate)}, hidden {Math.Max(1, view.HiddenFrameRate <= 0 ? 5 : view.HiddenFrameRate)}");
+        }
 
         var status = workspace.GetStatusSnapshot(view.Id);
         ImGui.TextColored(GetStatusColor(status.Availability), workspace.GetStatusText(status));
@@ -276,11 +311,15 @@ public sealed class MainWindow : Window, IDisposable
 
         if (view.ActOptimizations && BrowserUrlUtility.IsLikelyActOverlay(view.Url))
         {
-            ImGui.TextDisabled("ACT recovery is enabled for this view: the plugin probes OVERLAY_WS and reloads the page after ACT comes back.");
+            ImGui.TextDisabled("ACT recovery is enabled for this view: the plugin watches the ACT process, probes OVERLAY_WS and reloads the page after ACT comes back.");
         }
 
         ImGui.TextDisabled("If the view is unlocked, drag the frame around the page to move it and use the corner handles to resize it.");
         ImGui.TextDisabled("Click-through only applies while the view is locked.");
+        if (view.Locked && view.ClickThrough && view.OpacityPercent < 100f)
+        {
+            ImGui.TextDisabled("Semi-transparent click-through views are treated as passive overlays and throttled more aggressively.");
+        }
 
         if (ImGui.Button("Check Now"))
         {
@@ -323,8 +362,19 @@ public sealed class MainWindow : Window, IDisposable
         };
     }
 
-    private static string GetPerformancePresetDescription(BrowserViewPerformancePreset preset)
+    private static string GetPerformancePresetDescription(BrowserViewPerformancePreset preset, bool actOptimized)
     {
+        if (actOptimized)
+        {
+            return preset switch
+            {
+                BrowserViewPerformancePreset.Responsive => "ACT mode: keeps active overlays responsive, but throttles passive locked overlays to reduce game-side cost.",
+                BrowserViewPerformancePreset.Balanced => "ACT mode: favors passive overlay efficiency and lowers the frame rate further when the view is click-through.",
+                BrowserViewPerformancePreset.Eco => "ACT mode: aggressive low-FPS policy for passive overlays while keeping active interaction usable.",
+                _ => string.Empty,
+            };
+        }
+
         return preset switch
         {
             BrowserViewPerformancePreset.Responsive => "Keeps the browser fully active for the lowest interaction latency.",

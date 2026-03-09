@@ -19,7 +19,9 @@ internal sealed class RemoteBrowserView : IDisposable
     private ChromiumWebBrowser? browser;
     private RequestContext? requestContext;
     private BrowserViewCommand? command;
-    private Size currentSize = new(1, 1);
+    private Size currentViewSize = new(1, 1);
+    private Size currentPixelSize = new(1, 1);
+    private float deviceScaleFactor = 1f;
     private string liveUrl = string.Empty;
     private bool? muted;
     private double? zoomLevel;
@@ -34,13 +36,18 @@ internal sealed class RemoteBrowserView : IDisposable
     }
 
     public IntPtr SharedTextureHandle => renderHandler?.SharedTextureHandle ?? IntPtr.Zero;
-    public int PixelWidth => currentSize.Width;
-    public int PixelHeight => currentSize.Height;
+    public int PixelWidth => currentPixelSize.Width;
+    public int PixelHeight => currentPixelSize.Height;
 
     public bool Apply(BrowserViewCommand nextCommand)
     {
         command = nextCommand;
-        var textureChanged = EnsureSurface(nextCommand.Width, nextCommand.Height);
+        var textureChanged = EnsureSurface(
+            nextCommand.ViewWidth,
+            nextCommand.ViewHeight,
+            nextCommand.PixelWidth,
+            nextCommand.PixelHeight,
+            nextCommand.DeviceScaleFactor);
         EnsureBrowser(nextCommand.FrameRate);
 
         if (browser is { IsBrowserInitialized: true })
@@ -58,26 +65,34 @@ internal sealed class RemoteBrowserView : IDisposable
         renderHandler = null;
     }
 
-    private bool EnsureSurface(int width, int height)
+    private bool EnsureSurface(int viewWidth, int viewHeight, int pixelWidth, int pixelHeight, float nextDeviceScaleFactor)
     {
-        var nextSize = new Size(Math.Max(1, width), Math.Max(1, height));
+        var nextViewSize = new Size(Math.Max(1, viewWidth), Math.Max(1, viewHeight));
+        var nextPixelSize = new Size(Math.Max(1, pixelWidth), Math.Max(1, pixelHeight));
+        var clampedScaleFactor = Math.Clamp(nextDeviceScaleFactor, 0.5f, 4f);
         if (renderHandler == null)
         {
-            renderHandler = new SharedTextureRenderHandler(nextSize);
-            currentSize = nextSize;
+            renderHandler = new SharedTextureRenderHandler(nextViewSize, nextPixelSize, clampedScaleFactor);
+            currentViewSize = nextViewSize;
+            currentPixelSize = nextPixelSize;
+            deviceScaleFactor = clampedScaleFactor;
             return true;
         }
 
-        if (currentSize == nextSize)
+        if (currentViewSize == nextViewSize
+            && currentPixelSize == nextPixelSize
+            && Math.Abs(deviceScaleFactor - clampedScaleFactor) < 0.001f)
         {
             return false;
         }
 
-        currentSize = nextSize;
-        renderHandler.Resize(nextSize);
+        currentViewSize = nextViewSize;
+        currentPixelSize = nextPixelSize;
+        deviceScaleFactor = clampedScaleFactor;
+        renderHandler.Resize(nextViewSize, nextPixelSize, clampedScaleFactor);
         if (browser is { IsBrowserInitialized: true })
         {
-            browser.Size = nextSize;
+            browser.Size = nextViewSize;
         }
 
         return true;
@@ -85,17 +100,13 @@ internal sealed class RemoteBrowserView : IDisposable
 
     private void EnsureBrowser(int nextFrameRate)
     {
-        if (browser != null && frameRate == nextFrameRate)
+        if (browser != null)
         {
+            ApplyFrameRate(nextFrameRate);
             return;
         }
 
-        if (browser != null && frameRate != nextFrameRate)
-        {
-            DisposeBrowser();
-        }
-
-        if (browser != null || renderHandler == null)
+        if (renderHandler == null)
         {
             return;
         }
@@ -118,8 +129,8 @@ internal sealed class RemoteBrowserView : IDisposable
 
         var windowInfo = new WindowInfo
         {
-            Width = currentSize.Width,
-            Height = currentSize.Height,
+            Width = currentViewSize.Width,
+            Height = currentViewSize.Height,
         };
         windowInfo.SetAsWindowless(IntPtr.Zero);
 
@@ -139,7 +150,7 @@ internal sealed class RemoteBrowserView : IDisposable
             return;
         }
 
-        browser.Size = currentSize;
+        browser.Size = currentViewSize;
         ApplyState();
     }
 
@@ -161,10 +172,28 @@ internal sealed class RemoteBrowserView : IDisposable
             return;
         }
 
+        ApplyFrameRate(command.FrameRate);
         ApplyHidden(command.Hidden);
         ApplyMute(command.Muted);
         ApplyZoom(command.ZoomFactor);
         ApplyUrl(command.Url, command.ReloadGeneration);
+    }
+
+    private void ApplyFrameRate(int nextFrameRate)
+    {
+        var clampedFrameRate = Math.Clamp(nextFrameRate, 1, 60);
+        if (frameRate == clampedFrameRate)
+        {
+            return;
+        }
+
+        frameRate = clampedFrameRate;
+        if (browser == null || !browser.IsBrowserInitialized)
+        {
+            return;
+        }
+
+        browser.GetBrowserHost().WindowlessFrameRate = clampedFrameRate;
     }
 
     private void ApplyHidden(bool nextHidden)
@@ -176,6 +205,9 @@ internal sealed class RemoteBrowserView : IDisposable
         }
 
         hidden = nextHidden;
+        browser.GetBrowserHost().WindowlessFrameRate = nextHidden
+            ? Math.Clamp(command?.HiddenFrameRate ?? frameRate, 1, 60)
+            : Math.Clamp(frameRate, 1, 60);
         browser.GetBrowserHost().WasHidden(nextHidden);
     }
 
@@ -251,5 +283,8 @@ internal sealed class RemoteBrowserView : IDisposable
         zoomLevel = null;
         hidden = true;
         reloadGeneration = -1;
+        currentViewSize = new Size(1, 1);
+        currentPixelSize = new Size(1, 1);
+        deviceScaleFactor = 1f;
     }
 }

@@ -17,14 +17,20 @@ internal unsafe sealed class SharedTextureRenderHandler : IRenderHandler, IDispo
     private ID3D11Texture2D* sharedTexture;
     private ID3D11Texture2D* viewTexture;
     private ID3D11Texture2D* popupTexture;
+    private Size viewSize;
+    private Size pixelSize;
+    private float deviceScaleFactor;
     private Rect popupRect;
     private bool popupVisible;
     private IntPtr sharedTextureHandle;
 
-    public SharedTextureRenderHandler(Size size)
+    public SharedTextureRenderHandler(Size viewSize, Size pixelSize, float deviceScaleFactor)
     {
-        sharedTexture = BuildTexture(size, isShared: true);
-        viewTexture = BuildTexture(size, isShared: false);
+        this.viewSize = viewSize;
+        this.pixelSize = pixelSize;
+        this.deviceScaleFactor = Math.Clamp(deviceScaleFactor, 0.5f, 4f);
+        sharedTexture = BuildTexture(pixelSize, isShared: true);
+        viewTexture = BuildTexture(pixelSize, isShared: false);
     }
 
     public IntPtr SharedTextureHandle
@@ -80,31 +86,32 @@ internal unsafe sealed class SharedTextureRenderHandler : IRenderHandler, IDispo
         obsoleteTextures.Clear();
     }
 
-    public void Resize(Size size)
+    public void Resize(Size viewSize, Size pixelSize, float deviceScaleFactor)
     {
         lock (renderLock)
         {
             obsoleteTextures.Add((nint)sharedTexture);
             obsoleteTextures.Add((nint)viewTexture);
 
-            sharedTexture = BuildTexture(size, isShared: true);
-            viewTexture = BuildTexture(size, isShared: false);
+            this.viewSize = viewSize;
+            this.pixelSize = pixelSize;
+            this.deviceScaleFactor = Math.Clamp(deviceScaleFactor, 0.5f, 4f);
+            sharedTexture = BuildTexture(pixelSize, isShared: true);
+            viewTexture = BuildTexture(pixelSize, isShared: false);
             sharedTextureHandle = IntPtr.Zero;
         }
     }
 
     public Rect GetViewRect()
     {
-        D3D11_TEXTURE2D_DESC desc;
-        sharedTexture->GetDesc(&desc);
-        return new Rect(0, 0, (int)desc.Width, (int)desc.Height);
+        return new Rect(0, 0, viewSize.Width, viewSize.Height);
     }
 
     public ScreenInfo? GetScreenInfo()
     {
         return new ScreenInfo
         {
-            DeviceScaleFactor = 1f,
+            DeviceScaleFactor = deviceScaleFactor,
         };
     }
 
@@ -170,11 +177,13 @@ internal unsafe sealed class SharedTextureRenderHandler : IRenderHandler, IDispo
 
             if (popupVisible && popupTexture != null)
             {
+                var popupPixelX = (uint)Math.Max(0, (int)MathF.Round(popupRect.X * deviceScaleFactor));
+                var popupPixelY = (uint)Math.Max(0, (int)MathF.Round(popupRect.Y * deviceScaleFactor));
                 context->CopySubresourceRegion(
                     (ID3D11Resource*)sharedTexture,
                     0,
-                    (uint)Math.Max(0, popupRect.X),
-                    (uint)Math.Max(0, popupRect.Y),
+                    popupPixelX,
+                    popupPixelY,
                     0,
                     (ID3D11Resource*)popupTexture,
                     0,
@@ -212,7 +221,9 @@ internal unsafe sealed class SharedTextureRenderHandler : IRenderHandler, IDispo
             return;
         }
 
-        popupTexture = BuildTexture(new Size(rect.Width, rect.Height), isShared: false);
+        popupTexture = BuildTexture(new Size(
+            Math.Max(1, (int)MathF.Round(rect.Width * deviceScaleFactor)),
+            Math.Max(1, (int)MathF.Round(rect.Height * deviceScaleFactor))), isShared: false);
     }
 
     public void OnVirtualKeyboardRequested(IBrowser browser, TextInputMode inputMode)

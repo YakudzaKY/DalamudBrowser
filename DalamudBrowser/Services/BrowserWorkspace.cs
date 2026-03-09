@@ -5,6 +5,7 @@ using DalamudBrowser.Rendering;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -35,8 +36,13 @@ public sealed class BrowserWorkspace : IDisposable
         string Url,
         bool Locked,
         bool ClickThrough,
+        bool ActOptimizations,
+        bool UseCustomFrameRates,
         bool SoundEnabled,
         BrowserViewPerformancePreset PerformancePreset,
+        int InteractiveFrameRate,
+        int PassiveFrameRate,
+        int HiddenFrameRate,
         float ZoomPercent,
         float OpacityPercent,
         Vector2 Position,
@@ -48,6 +54,13 @@ public sealed class BrowserWorkspace : IDisposable
     private const float SurfaceHandleThickness = 10f;
     private const float HandleVisualThickness = 3f;
     private const float HandleCornerSize = 18f;
+    private static readonly string[] ActProcessNames =
+    [
+        "Advanced Combat Tracker",
+        "AdvancedCombatTracker",
+        "ACTx64",
+        "ACTx86",
+    ];
 
     private readonly IPluginLog log;
     private readonly IBrowserRenderBackend renderBackend;
@@ -64,6 +77,7 @@ public sealed class BrowserWorkspace : IDisposable
     private Vector2 resizeStartMousePosition;
     private Vector2 resizeStartWindowPosition;
     private Vector2 resizeStartWindowSize;
+    private int actProcessRunningState = -1;
 
     public BrowserWorkspace(Configuration configuration, IPluginLog log, IBrowserRenderBackend renderBackend)
     {
@@ -251,8 +265,13 @@ public sealed class BrowserWorkspace : IDisposable
                         view.Url,
                         view.Locked,
                         view.ClickThrough,
+                        view.ActOptimizations,
+                        view.UseCustomFrameRates,
                         view.SoundEnabled,
                         view.PerformancePreset,
+                        view.InteractiveFrameRate,
+                        view.PassiveFrameRate,
+                        view.HiddenFrameRate,
                         view.ZoomPercent,
                         view.OpacityPercent,
                         layout.Position,
@@ -304,6 +323,7 @@ public sealed class BrowserWorkspace : IDisposable
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
+                RefreshActProcessState(DateTimeOffset.UtcNow);
                 var targets = GetDueProbeTargets(DateTimeOffset.UtcNow);
                 if (targets.Count == 0)
                 {
@@ -336,8 +356,14 @@ public sealed class BrowserWorkspace : IDisposable
                 return;
             }
 
-            if (target.ActOptimizations
-                && BrowserUrlUtility.TryGetActOverlayWebSocket(normalizedUrl, out var overlayWebSocketUri))
+            var isActOverlay = target.ActOptimizations && BrowserUrlUtility.IsLikelyActOverlay(normalizedUrl);
+            if (isActOverlay && !IsActProcessRunningCached())
+            {
+                GetRuntimeState(target.ViewId).MarkUnavailable(DateTimeOffset.UtcNow, "ACT is not running.");
+                return;
+            }
+
+            if (isActOverlay && BrowserUrlUtility.TryGetActOverlayWebSocket(normalizedUrl, out var overlayWebSocketUri))
             {
                 var actAvailabilityError = await ProbeActOverlayAsync(overlayWebSocketUri, target.TimeoutSeconds, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(actAvailabilityError))
@@ -385,6 +411,33 @@ public sealed class BrowserWorkspace : IDisposable
         {
             log.Warning(ex, "Failed to probe browser view URL {Url}", target.Url);
             GetRuntimeState(target.ViewId).MarkUnavailable(DateTimeOffset.UtcNow, ex.Message);
+        }
+    }
+
+    private void RefreshActProcessState(DateTimeOffset nowUtc)
+    {
+        List<Guid> actViewIds;
+        lock (SyncRoot)
+        {
+            actViewIds = GetActOptimizedViewIdsLocked();
+        }
+
+        if (actViewIds.Count == 0)
+        {
+            Interlocked.Exchange(ref actProcessRunningState, -1);
+            return;
+        }
+
+        var isRunning = IsActProcessRunning() ? 1 : 0;
+        var previousState = Interlocked.Exchange(ref actProcessRunningState, isRunning);
+        if (previousState == isRunning)
+        {
+            return;
+        }
+
+        foreach (var viewId in actViewIds)
+        {
+            GetRuntimeState(viewId).ForceProbe(nowUtc);
         }
     }
 
@@ -437,6 +490,58 @@ public sealed class BrowserWorkspace : IDisposable
 
             return targets;
         }
+    }
+
+    private List<Guid> GetActOptimizedViewIdsLocked()
+    {
+        return Configuration.Collections
+            .Where(collection => collection.IsEnabled)
+            .SelectMany(collection => collection.Views)
+            .Where(view => view.ActOptimizations && !string.IsNullOrWhiteSpace(view.Url) && BrowserUrlUtility.IsLikelyActOverlay(view.Url))
+            .Select(view => view.Id)
+            .ToList();
+    }
+
+    private bool IsActProcessRunningCached()
+    {
+        var cachedState = Volatile.Read(ref actProcessRunningState);
+        return cachedState switch
+        {
+            0 => false,
+            1 => true,
+            _ => IsActProcessRunning(),
+        };
+    }
+
+    private static bool IsActProcessRunning()
+    {
+        foreach (var processName in ActProcessNames)
+        {
+            Process[]? matches = null;
+            try
+            {
+                matches = Process.GetProcessesByName(processName);
+                if (matches.Length > 0)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+            finally
+            {
+                if (matches != null)
+                {
+                    foreach (var match in matches)
+                    {
+                        match.Dispose();
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     private void DrawView(BrowserViewWindowSnapshot snapshot, BrowserViewportMetrics viewport)
@@ -493,8 +598,9 @@ public sealed class BrowserWorkspace : IDisposable
         var surfaceLayout = snapshot.Locked
             ? new BrowserSurfaceLayout(ImGui.GetCursorScreenPos(), ImGui.GetContentRegionAvail())
             : DrawUnlockedSurfaceChrome(snapshot.ViewId);
-        var isWindowHovered = ImGui.IsWindowHovered();
-        var isWindowFocused = ImGui.IsWindowFocused();
+        var treatsAsPassiveOverlay = snapshot.Locked && snapshot.ClickThrough;
+        var isWindowHovered = !treatsAsPassiveOverlay && ImGui.IsWindowHovered();
+        var isWindowFocused = !treatsAsPassiveOverlay && ImGui.IsWindowFocused();
 
         renderBackend.Draw(new BrowserRenderRequest(
             snapshot.ViewId,
@@ -502,8 +608,13 @@ public sealed class BrowserWorkspace : IDisposable
             snapshot.Url,
             snapshot.Locked,
             snapshot.ClickThrough,
+            snapshot.ActOptimizations,
+            snapshot.UseCustomFrameRates,
             snapshot.SoundEnabled,
             snapshot.PerformancePreset,
+            snapshot.InteractiveFrameRate,
+            snapshot.PassiveFrameRate,
+            snapshot.HiddenFrameRate,
             Math.Clamp(snapshot.ZoomPercent / 100f, 0.25f, 5f),
             Math.Clamp(snapshot.OpacityPercent / 100f, 0.01f, 1f),
             isWindowHovered,

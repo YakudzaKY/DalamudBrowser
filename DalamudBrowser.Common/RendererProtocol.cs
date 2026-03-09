@@ -28,12 +28,16 @@ public sealed record RendererLaunchOptions(
 public sealed record BrowserViewCommand(
     Guid ViewId,
     string Url,
-    int Width,
-    int Height,
+    int ViewWidth,
+    int ViewHeight,
+    int PixelWidth,
+    int PixelHeight,
+    float DeviceScaleFactor,
     float ZoomFactor,
     int ReloadGeneration,
     bool Muted,
     int FrameRate,
+    int HiddenFrameRate,
     bool Hidden);
 
 public sealed record RendererCommand

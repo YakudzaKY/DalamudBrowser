@@ -7,10 +7,13 @@ The current renderer path uses an external CEF renderer process plus shared D3D1
 ## Current Capabilities
 
 - Collections containing zero or more browser views
-- Per-view URL, visibility, lock, click-through, sound, zoom, and performance preset settings
+- Per-view URL, visibility, lock, click-through, sound, zoom, opacity, and performance settings
+- Optional per-view custom FPS controls for active, passive, and hidden states
 - `http://`, `https://`, and `file://` URL support
 - Periodic availability checks with retry for endpoints like local ACT pages
-- Saved window position and size per view
+- ACT-aware recovery with process watching and `OVERLAY_WS` probing
+- DPI-aware browser scale factor for the off-screen renderer
+- Saved window position and size per view in viewport-relative percentages
 - Unlocked drag-to-move behavior with corner-only resize handles
 - Game-first focus policy so browser views do not intentionally take keyboard focus away from FFXIV
 
@@ -20,8 +23,8 @@ The current renderer path uses an external CEF renderer process plus shared D3D1
 - The current target is passive or low-interaction overlays such as ACT/cactbot
 - Keyboard input is intentionally not forwarded to the browser surface
 - General browser interaction is currently more limited than a mature overlay browser plugin
-- Layout is still stored in pixels today, not percentages
-- Opacity controls and ACT-specific process integration are not implemented yet
+- CEF windowless rendering is capped at 60 FPS, so higher visible rates are not possible in the current backend
+- Linux support is not implemented
 
 ## Build
 
@@ -40,22 +43,29 @@ For dev plugin loading, use:
 
 The external renderer files are produced under:
 
+`D:\git\AI REPOS\DalamudBrowser\DalamudBrowser\bin\Release\renderer\`
+
+The renderer also has an intermediate build output under:
+
 `D:\git\AI REPOS\DalamudBrowser\DalamudBrowser\bin\x64\Release\renderer\`
 
-Do not delete that `renderer` directory. The plugin expects the renderer executable and CEF runtime files to exist there.
+Do not delete the `bin\Release\renderer` directory. The dev plugin path expects the renderer executable and CEF runtime files to exist there.
 
 ## Compared To Browsingway
 
-`Browsingway` is the more mature overlay-oriented project today. It is further along in polish for fullscreen browser overlays and already has features such as opacity control, DPI-oriented behavior, and ACT-specific optimizations.
+`Browsingway` is still the more mature overlay-oriented project overall, but the gap is much smaller now.
 
 `Dalamud Browser` is different in focus:
 
 - workspace-first model with collections and multiple managed views
 - built-in link retry and local `file://` overlay handling
 - stricter game-first input policy to avoid browser focus stealing
-- explicit per-view lock, click-through, sound, zoom, and performance presets
+- explicit per-view lock, click-through, sound, zoom, opacity, and performance controls
+- viewport-percentage layout so views survive `windowed -> fullscreen` transitions more cleanly
+- ACT-aware process watching plus websocket recovery
+- optional custom per-view FPS for active, passive, and hidden states, within the 60 FPS ceiling of CEF OSR
 
-Right now this project is not a drop-in replacement for `Browsingway`. It is closer to a browser workspace for fixed in-game web views than a fully general-purpose overlay browser.
+Right now this project is still not a full drop-in replacement for `Browsingway` if the goal is a broad, highly interactive browser overlay. It is closer to a browser workspace for fixed in-game web views, with a stronger focus on layout stability and ACT/cactbot recovery behavior.
 
 ## Notes
 

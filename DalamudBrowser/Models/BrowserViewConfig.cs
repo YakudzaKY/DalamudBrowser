@@ -15,6 +15,10 @@ public sealed class BrowserViewConfig
     public bool AutoRetry { get; set; } = true;
     public bool ActOptimizations { get; set; } = true;
     public BrowserViewPerformancePreset PerformancePreset { get; set; } = BrowserViewPerformancePreset.Balanced;
+    public bool UseCustomFrameRates { get; set; }
+    public int InteractiveFrameRate { get; set; }
+    public int PassiveFrameRate { get; set; }
+    public int HiddenFrameRate { get; set; }
     public float ZoomPercent { get; set; } = 100f;
     public float OpacityPercent { get; set; } = 100f;
     public float PositionX { get; set; } = 220f;
@@ -40,6 +44,9 @@ public sealed class BrowserViewConfig
             PerformancePreset = BrowserViewPerformancePreset.Balanced;
         }
 
+        InteractiveFrameRate = NormalizeFrameRate(InteractiveFrameRate);
+        PassiveFrameRate = NormalizeFrameRate(PassiveFrameRate);
+        HiddenFrameRate = NormalizeFrameRate(HiddenFrameRate);
         ZoomPercent = Math.Clamp(ZoomPercent, 25f, 500f);
         OpacityPercent = Math.Clamp(OpacityPercent, 1f, 100f);
         Width = Math.Max(320f, Width);
@@ -53,5 +60,10 @@ public sealed class BrowserViewConfig
     private static float NormalizePercent(float value)
     {
         return value < 0f ? -1f : Math.Clamp(value, 0f, 100f);
+    }
+
+    private static int NormalizeFrameRate(int value)
+    {
+        return value <= 0 ? 0 : Math.Clamp(value, 1, 60);
     }
 }

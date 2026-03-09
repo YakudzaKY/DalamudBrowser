@@ -19,6 +19,8 @@ namespace DalamudBrowser.Rendering;
 
 public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
 {
+    private readonly record struct BrowserRuntimePolicy(int FrameRate, int HiddenFrameRate);
+
     private readonly IDalamudPluginInterface pluginInterface;
     private readonly IPluginLog log;
     private readonly Dictionary<Guid, RemoteViewState> views = new();
@@ -103,16 +105,26 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
 
         var viewState = GetOrCreateViewState(request.ViewId);
         viewState.ApplyPendingTexture(device, log);
+        var runtimePolicy = ResolveRuntimePolicy(request);
+        var deviceScaleFactor = DisplayScaleUtility.GetScaleFactor();
+        var viewWidth = Math.Max(1, (int)MathF.Round(MathF.Max(16f, request.SurfaceSize.X)));
+        var viewHeight = Math.Max(1, (int)MathF.Round(MathF.Max(16f, request.SurfaceSize.Y)));
+        var pixelWidth = Math.Max(1, (int)MathF.Round(viewWidth * deviceScaleFactor));
+        var pixelHeight = Math.Max(1, (int)MathF.Round(viewHeight * deviceScaleFactor));
 
         var syncCommand = new BrowserViewCommand(
             request.ViewId,
             liveUrl,
-            Math.Max(1, (int)MathF.Round(MathF.Max(16f, request.SurfaceSize.X))),
-            Math.Max(1, (int)MathF.Round(MathF.Max(16f, request.SurfaceSize.Y))),
+            viewWidth,
+            viewHeight,
+            pixelWidth,
+            pixelHeight,
+            deviceScaleFactor,
             Math.Clamp(request.ZoomFactor, 0.25f, 5f),
             request.Status.ReloadGeneration,
             !request.SoundEnabled,
-            ResolveWindowlessFrameRate(request.PerformancePreset),
+            runtimePolicy.FrameRate,
+            runtimePolicy.HiddenFrameRate,
             Hidden: false);
 
         viewState.Sync(rendererProcess, syncCommand);
@@ -308,15 +320,41 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
         ImGui.Dummy(size);
     }
 
-    private static int ResolveWindowlessFrameRate(BrowserViewPerformancePreset preset)
+    private static BrowserRuntimePolicy ResolveRuntimePolicy(BrowserRenderRequest request)
     {
-        return preset switch
+        var actOptimized = request.ActOptimizations && BrowserUrlUtility.IsLikelyActOverlay(request.Url);
+        var passiveOverlay = request.Locked && request.ClickThrough;
+        var activeInteraction = request.IsWindowHovered || request.IsWindowFocused || !request.Locked;
+
+        if (request.UseCustomFrameRates)
         {
-            BrowserViewPerformancePreset.Responsive => 60,
-            BrowserViewPerformancePreset.Balanced => 30,
-            BrowserViewPerformancePreset.Eco => 15,
-            _ => 30,
+            var interactiveFrameRate = NormalizeFrameRate(request.InteractiveFrameRate, fallback: 30);
+            var passiveFrameRate = NormalizeFrameRate(request.PassiveFrameRate, fallback: Math.Min(interactiveFrameRate, 15));
+            var hiddenFrameRate = NormalizeFrameRate(request.HiddenFrameRate, fallback: Math.Min(passiveFrameRate, 5));
+            return new BrowserRuntimePolicy(
+                activeInteraction ? interactiveFrameRate : passiveFrameRate,
+                hiddenFrameRate);
+        }
+
+        var basePolicy = request.PerformancePreset switch
+        {
+            BrowserViewPerformancePreset.Responsive => new BrowserRuntimePolicy(60, 10),
+            BrowserViewPerformancePreset.Balanced => new BrowserRuntimePolicy(45, 8),
+            BrowserViewPerformancePreset.Eco => new BrowserRuntimePolicy(30, 8),
+            _ => new BrowserRuntimePolicy(60, 8),
         };
+
+        if (!actOptimized)
+        {
+            return basePolicy;
+        }
+
+        return basePolicy;
+    }
+
+    private static int NormalizeFrameRate(int value, int fallback)
+    {
+        return value <= 0 ? fallback : Math.Clamp(value, 1, 60);
     }
 
     private static unsafe LUID GetAdapterLuid(ID3D11Device* device)
@@ -437,7 +475,11 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
                 return;
             }
 
-            lastCommand = lastCommand with { Hidden = true };
+            lastCommand = lastCommand with
+            {
+                Hidden = true,
+                FrameRate = Math.Clamp(lastCommand.HiddenFrameRate, 1, 60),
+            };
             processHost.Send(RendererCommand.SyncView(lastCommand));
         }
 
