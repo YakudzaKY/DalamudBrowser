@@ -36,7 +36,6 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: DalamudBrowser
-        path: .\DalamudBrowser\bin\Release\*
+        path: .\DalamudBrowser\bin\Release\net8.0-windows\*
         if-no-files-found: error
         retention-days: 1
-
