@@ -118,23 +118,54 @@ internal static class BrowserUrlUtility
     private static string? TryGetQueryParameterValue(Uri uri, string key)
     {
         var query = uri.Query;
-        if (string.IsNullOrWhiteSpace(query))
+        if (string.IsNullOrWhiteSpace(query) || query.Length <= 1)
         {
             return null;
         }
 
-        foreach (var segment in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        var querySpan = query.AsSpan(1);
+        while (querySpan.Length > 0)
         {
-            var separatorIndex = segment.IndexOf('=');
-            var rawName = separatorIndex >= 0 ? segment[..separatorIndex] : segment;
-            var decodedName = Uri.UnescapeDataString(rawName.Replace('+', ' '));
-            if (!string.Equals(decodedName, key, StringComparison.OrdinalIgnoreCase))
+            int ampersandIndex = querySpan.IndexOf('&');
+            ReadOnlySpan<char> segment = ampersandIndex >= 0 ? querySpan[..ampersandIndex] : querySpan;
+            querySpan = ampersandIndex >= 0 ? querySpan[(ampersandIndex + 1)..] : ReadOnlySpan<char>.Empty;
+
+            if (segment.Length == 0)
             {
                 continue;
             }
 
-            var rawValue = separatorIndex >= 0 ? segment[(separatorIndex + 1)..] : string.Empty;
-            return Uri.UnescapeDataString(rawValue.Replace('+', ' '));
+            int separatorIndex = segment.IndexOf('=');
+            ReadOnlySpan<char> rawName = separatorIndex >= 0 ? segment[..separatorIndex] : segment;
+
+            bool nameMatch;
+            if (rawName.IndexOfAny('+', '%') == -1)
+            {
+                nameMatch = rawName.Equals(key.AsSpan(), StringComparison.OrdinalIgnoreCase);
+            }
+            else
+            {
+                var decodedName = Uri.UnescapeDataString(rawName.ToString().Replace('+', ' '));
+                nameMatch = string.Equals(decodedName, key, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (!nameMatch)
+            {
+                continue;
+            }
+
+            ReadOnlySpan<char> rawValue = separatorIndex >= 0 ? segment[(separatorIndex + 1)..] : ReadOnlySpan<char>.Empty;
+            if (rawValue.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            if (rawValue.IndexOfAny('+', '%') == -1)
+            {
+                return rawValue.ToString();
+            }
+
+            return Uri.UnescapeDataString(rawValue.ToString().Replace('+', ' '));
         }
 
         return null;
