@@ -19,7 +19,7 @@ jobs:
     - name: Install .NET
       uses: actions/setup-dotnet@v5
       with:
-        dotnet-version: 10.0.x
+        dotnet-version: 8.0.x
 
     - name: Download Dalamud
       run: |
@@ -29,11 +29,14 @@ jobs:
     - name: Build with dotnet
       run: dotnet build --configuration Release
 
+    - name: Run Tests
+      run: dotnet test --configuration Release --no-build --verbosity normal
+
     - name: Store artifacts
       uses: actions/upload-artifact@v4
       with:
         name: DalamudBrowser
-        path: .\DalamudBrowser\bin\x64\Release\DalamudBrowser\*
+        path: .\DalamudBrowser\bin\Release\*
         if-no-files-found: error
         retention-days: 1
 
