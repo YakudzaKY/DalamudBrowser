@@ -513,7 +513,7 @@ public sealed class BrowserWorkspace : IDisposable
         };
     }
 
-    private static bool IsActProcessRunning()
+    private bool IsActProcessRunning()
     {
         foreach (var processName in ActProcessNames)
         {
@@ -526,8 +526,9 @@ public sealed class BrowserWorkspace : IDisposable
                     return true;
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                log.Error(ex, "Could not poll for ACT process {ProcessName}", processName);
             }
             finally
             {
