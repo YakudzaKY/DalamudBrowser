@@ -30,13 +30,6 @@ public sealed class MainWindow : Window, IDisposable
         {
             configuration.EnsureInitialized();
 
-            ImGui.TextUnformatted("Collections contain zero or more browser views.");
-            ImGui.TextDisabled($"Renderer backend: {workspace.BackendName} | JavaScript: {(workspace.SupportsJavaScript ? "yes" : "not yet")}");
-            ImGui.TextDisabled("Unlocked views can be moved by dragging the frame around the page and resized only from the corner handles.");
-            ImGui.TextDisabled("The render window itself now stays page-only: no title bar, URL text or status text on top of the page.");
-            ImGui.TextDisabled("Layout is now tracked in viewport percentages so windowed/fullscreen transitions keep views aligned.");
-            ImGui.Separator();
-
             if (ImGui.Button("Add Collection"))
             {
                 workspace.AddCollection();
@@ -286,7 +279,6 @@ public sealed class MainWindow : Window, IDisposable
             }
         }
 
-        ImGui.TextDisabled(GetPerformancePresetDescription(view.PerformancePreset, view.ActOptimizations && BrowserUrlUtility.IsLikelyActOverlay(view.Url)));
         if (view.UseCustomFrameRates)
         {
             ImGui.TextDisabled($"Custom FPS: active {Math.Max(1, view.InteractiveFrameRate <= 0 ? 30 : view.InteractiveFrameRate)}, passive {Math.Max(1, view.PassiveFrameRate <= 0 ? 15 : view.PassiveFrameRate)}, hidden {Math.Max(1, view.HiddenFrameRate <= 0 ? 5 : view.HiddenFrameRate)}");
@@ -307,18 +299,6 @@ public sealed class MainWindow : Window, IDisposable
         else
         {
             ImGui.TextDisabled("Layout(%): will be captured automatically after the first rendered frame.");
-        }
-
-        if (view.ActOptimizations && BrowserUrlUtility.IsLikelyActOverlay(view.Url))
-        {
-            ImGui.TextDisabled("ACT recovery is enabled for this view: the plugin watches the ACT process, probes OVERLAY_WS and reloads the page after ACT comes back.");
-        }
-
-        ImGui.TextDisabled("If the view is unlocked, drag the frame around the page to move it and use the corner handles to resize it.");
-        ImGui.TextDisabled("Click-through only applies while the view is locked.");
-        if (view.Locked && view.ClickThrough && view.OpacityPercent < 100f)
-        {
-            ImGui.TextDisabled("Semi-transparent click-through views are treated as passive overlays and throttled more aggressively.");
         }
 
         if (ImGui.Button("Check Now"))
@@ -359,28 +339,6 @@ public sealed class MainWindow : Window, IDisposable
             BrowserViewPerformancePreset.Balanced => "Balanced",
             BrowserViewPerformancePreset.Eco => "Eco",
             _ => "Balanced",
-        };
-    }
-
-    private static string GetPerformancePresetDescription(BrowserViewPerformancePreset preset, bool actOptimized)
-    {
-        if (actOptimized)
-        {
-            return preset switch
-            {
-                BrowserViewPerformancePreset.Responsive => "ACT mode: keeps active overlays responsive, but throttles passive locked overlays to reduce game-side cost.",
-                BrowserViewPerformancePreset.Balanced => "ACT mode: favors passive overlay efficiency and lowers the frame rate further when the view is click-through.",
-                BrowserViewPerformancePreset.Eco => "ACT mode: aggressive low-FPS policy for passive overlays while keeping active interaction usable.",
-                _ => string.Empty,
-            };
-        }
-
-        return preset switch
-        {
-            BrowserViewPerformancePreset.Responsive => "Keeps the browser fully active for the lowest interaction latency.",
-            BrowserViewPerformancePreset.Balanced => "Keeps active views fast and lowers memory pressure when the view is not being used.",
-            BrowserViewPerformancePreset.Eco => "Suspends hidden views and restores them when shown again to cut background cost.",
-            _ => string.Empty,
         };
     }
 
