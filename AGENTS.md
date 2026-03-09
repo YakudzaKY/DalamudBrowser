@@ -59,6 +59,21 @@ The project is not a generic website browser yet. The current target is passive 
 
 Do not point Dalamud at `DalamudBrowser.Common.dll` or any DLL inside the renderer folder.
 
+## Toolchain And Version Baseline
+
+- This repo is currently a `.NET 10` codebase:
+  - `DalamudBrowser.Common` targets `net10.0-windows`
+  - `DalamudBrowser.Renderer` targets `net10.0-windows`
+- Treat the project as modern .NET only. Do not suggest or introduce `.NET Framework`, `net6.0`, `net7.0`, or `net8.0` changes unless the user explicitly asks for a downgrade or compatibility work.
+- The plugin project uses `Dalamud.NET.Sdk/14.0.2`.
+- C# language version is `latestmajor` in the shared and renderer projects. Do not intentionally write code around older C# language limitations unless required.
+- Runtime/output assumptions are `Windows` + `win-x64`. The renderer packaging and shared texture path are not cross-platform.
+- Renderer package/runtime versions currently in use:
+  - `CefSharp.Common.NETCore` `143.0.90`
+  - `CefSharp.OffScreen.NETCore` `143.0.90`
+  - `chromiumembeddedframework.runtime.win-x64` `143.0.9`
+- There is currently no root `global.json` pinning a different SDK. If local tooling differs, follow the repo target frameworks and package versions above instead of assuming an older SDK baseline.
+
 ## Build Gotchas
 
 - If `Release` build fails with `DalamudBrowser.json` locked, the plugin is usually still loaded in Dalamud. Unload the dev plugin first, then rebuild.
