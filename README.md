@@ -59,7 +59,7 @@ Key differences:
 
 - workspace-first model with collections and multiple managed views
 - built-in link retry and local `file://` overlay handling
-- stricter game-first input policy to avoid browser focus stealing
+- game-first input model that keeps keyboard input with FFXIV instead of forwarding it into browser views
 - explicit per-view lock, click-through, sound, zoom, opacity, and performance controls
 - viewport-percentage layout so views survive `windowed -> fullscreen` transitions more cleanly
 - ACT-aware process watching plus websocket recovery
