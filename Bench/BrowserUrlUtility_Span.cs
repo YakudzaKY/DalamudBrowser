@@ -3,7 +3,7 @@ using System.IO;
 
 namespace DalamudBrowser.Services;
 
-internal static class BrowserUrlUtility
+internal static class BrowserUrlUtilitySpan
 {
     public static string Normalize(string? url)
     {
@@ -145,6 +145,8 @@ internal static class BrowserUrlUtility
             var rawName = separatorIndex >= 0 ? segment[..separatorIndex] : segment;
 
             bool match = false;
+            // Key cannot contain '+' or '%' as it's hardcoded to "OVERLAY_WS" in our case
+            // But let's handle the general case just in case
             if (rawName.IndexOfAny('+', '%') < 0)
             {
                 match = rawName.Equals(key, StringComparison.OrdinalIgnoreCase);
@@ -165,7 +167,6 @@ internal static class BrowserUrlUtility
             {
                 return rawValue.ToString();
             }
-
             return Uri.UnescapeDataString(rawValue.ToString().Replace('+', ' '));
         }
 
