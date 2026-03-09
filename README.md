@@ -53,9 +53,9 @@ Do not delete the `bin\Release\renderer` directory. The dev plugin path expects 
 
 ## Compared To Browsingway
 
-`Browsingway` is still the more mature overlay-oriented project overall, but the gap is much smaller now.
+This project is inspired by `Browsingway`, especially in the external browser renderer / process direction.
 
-`Dalamud Browser` is different in focus:
+Key differences:
 
 - workspace-first model with collections and multiple managed views
 - built-in link retry and local `file://` overlay handling
@@ -65,7 +65,7 @@ Do not delete the `bin\Release\renderer` directory. The dev plugin path expects 
 - ACT-aware process watching plus websocket recovery
 - optional custom per-view FPS for active, passive, and hidden states, within the 60 FPS ceiling of CEF OSR
 
-Right now this project is still not a full drop-in replacement for `Browsingway` if the goal is a broad, highly interactive browser overlay. It is closer to a browser workspace for fixed in-game web views, with a stronger focus on layout stability and ACT/cactbot recovery behavior.
+`Dalamud Browser` is currently oriented more toward managed in-game web views and fixed overlays such as ACT/cactbot, rather than a broad fully interactive browser overlay workflow.
 
 ## Notes
 
