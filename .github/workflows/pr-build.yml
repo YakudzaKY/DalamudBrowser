@@ -27,13 +27,15 @@ jobs:
         Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
 
     - name: Build with dotnet
-      run: dotnet build --configuration Release
+      run: dotnet build --configuration Release -p:Platform=x64
 
     - name: Store artifacts
       uses: actions/upload-artifact@v4
       with:
         name: DalamudBrowser
-        path: .\DalamudBrowser\bin\x64\Release\DalamudBrowser\*
+        path: |
+          .\DalamudBrowser\bin\x64\Release\*
+          !.\DalamudBrowser\bin\x64\Release\DalamudBrowser\**
         if-no-files-found: error
         retention-days: 1
 
