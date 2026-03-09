@@ -33,11 +33,6 @@ internal static class CefRuntime
         settings.SetOffScreenRenderingBestPerformanceArgs();
         settings.UserAgentProduct = $"Chrome/{Cef.ChromiumVersion} DalamudBrowser/{Assembly.GetEntryAssembly()?.GetName().Version} (ffxiv_pid {parentProcessId}; renderer_pid {Environment.ProcessId})";
 
-        if (Environment.IsPrivilegedProcess)
-        {
-            settings.CefCommandLineArgs["do-not-de-elevate"] = "1";
-        }
-
         Directory.CreateDirectory(cacheDirectory);
         RootCachePath = cacheDirectory;
 
