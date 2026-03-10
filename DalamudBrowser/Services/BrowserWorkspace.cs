@@ -357,13 +357,13 @@ public sealed class BrowserWorkspace : IDisposable
             }
 
             var isActOverlay = target.ActOptimizations && BrowserUrlUtility.IsLikelyActOverlay(normalizedUrl);
-            if (isActOverlay && !IsActProcessRunningCached())
+            if (isActOverlay && !uri.IsFile && !IsActProcessRunningCached())
             {
                 GetRuntimeState(target.ViewId).MarkUnavailable(DateTimeOffset.UtcNow, "ACT is not running.");
                 return;
             }
 
-            if (isActOverlay && BrowserUrlUtility.TryGetActOverlayWebSocket(normalizedUrl, out var overlayWebSocketUri))
+            if (isActOverlay && !uri.IsFile && BrowserUrlUtility.TryGetActOverlayWebSocket(normalizedUrl, out var overlayWebSocketUri))
             {
                 var actAvailabilityError = await ProbeActOverlayAsync(overlayWebSocketUri, target.TimeoutSeconds, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(actAvailabilityError))

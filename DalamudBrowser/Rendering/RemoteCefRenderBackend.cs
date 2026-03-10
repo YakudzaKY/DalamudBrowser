@@ -241,9 +241,16 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
         }
 
         liveUrl = navigationUri.AbsoluteUri;
-        if (navigationUri.IsFile && request.Status.Availability != BrowserAvailabilityState.Unavailable)
+        if (navigationUri.IsFile)
         {
-            return true;
+            // Keep local overlays alive even if the ACT websocket probe flickers.
+            if (File.Exists(navigationUri.LocalPath))
+            {
+                return true;
+            }
+
+            placeholderMessage = $"File not found: {navigationUri.LocalPath}";
+            return false;
         }
 
         if (request.Status.Availability == BrowserAvailabilityState.Available || request.Status.IsChecking)
@@ -404,6 +411,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
         private readonly object syncRoot = new();
 
         private BrowserViewCommand? lastCommand;
+        private int lastSentConnectionGeneration = -1;
         private SharedTextureSurface? surface;
         private IntPtr pendingTextureHandle;
         private bool hasPendingTexture;
@@ -459,13 +467,19 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
 
         public void Sync(BrowserRendererProcessHost processHost, BrowserViewCommand command)
         {
-            if (lastCommand == command)
+            var connectionGeneration = processHost.ConnectionGeneration;
+            if (lastCommand == command && lastSentConnectionGeneration == connectionGeneration)
+            {
+                return;
+            }
+
+            if (!processHost.TrySend(RendererCommand.SyncView(command)))
             {
                 return;
             }
 
             lastCommand = command;
-            processHost.Send(RendererCommand.SyncView(command));
+            lastSentConnectionGeneration = connectionGeneration;
         }
 
         public void EnsureHidden(BrowserRendererProcessHost processHost)
@@ -475,12 +489,18 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
                 return;
             }
 
-            lastCommand = lastCommand with
+            var hiddenCommand = lastCommand with
             {
                 Hidden = true,
                 FrameRate = Math.Clamp(lastCommand.HiddenFrameRate, 1, 60),
             };
-            processHost.Send(RendererCommand.SyncView(lastCommand));
+            if (!processHost.TrySend(RendererCommand.SyncView(hiddenCommand)))
+            {
+                return;
+            }
+
+            lastCommand = hiddenCommand;
+            lastSentConnectionGeneration = processHost.ConnectionGeneration;
         }
 
         public bool TryRender(Vector2 requestedSize, float opacityFactor)
@@ -496,8 +516,9 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
 
         public void Remove(BrowserRendererProcessHost processHost)
         {
-            processHost.Send(RendererCommand.RemoveView(viewId));
+            processHost.TrySend(RendererCommand.RemoveView(viewId));
             lastCommand = null;
+            lastSentConnectionGeneration = -1;
         }
 
         public void Dispose()
@@ -518,6 +539,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
         private CancellationTokenSource? connectionTokenSource;
         private DateTimeOffset nextStartUtc = DateTimeOffset.MinValue;
         private DateTimeOffset lastHealthCheckUtc = DateTimeOffset.MinValue;
+        private int connectionGeneration;
         private bool disposed;
 
         public BrowserRendererProcessHost(string executablePath, IPluginLog log)
@@ -529,6 +551,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
         public event Action<RendererEvent>? EventReceived;
         public bool IsConnected { get; private set; }
         public string? LastError { get; private set; }
+        public int ConnectionGeneration => Volatile.Read(ref connectionGeneration);
 
         public void Dispose()
         {
@@ -541,7 +564,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
 
             try
             {
-                Send(RendererCommand.Shutdown());
+                TrySend(RendererCommand.Shutdown());
             }
             catch
             {
@@ -668,7 +691,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
             StopInternal();
         }
 
-        public void Send(RendererCommand command)
+        public bool TrySend(RendererCommand command)
         {
             PipeJsonChannel? activeChannel;
             lock (syncRoot)
@@ -678,7 +701,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
 
             if (!IsConnected || activeChannel == null)
             {
-                return;
+                return false;
             }
 
             _ = activeChannel.SendAsync(command).ContinueWith(task =>
@@ -699,6 +722,8 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
                     log.Warning(task.Exception.Flatten(), "Failed to send command to the browser renderer process.");
                 }
             }, TaskScheduler.Default);
+
+            return true;
         }
 
         private async Task AcceptAsync(string pipeName, CancellationToken cancellationToken)
@@ -727,6 +752,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
 
                     channel = acceptedChannel;
                     IsConnected = true;
+                    Interlocked.Increment(ref connectionGeneration);
                 }
             }
             catch (OperationCanceledException)
