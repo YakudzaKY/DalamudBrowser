@@ -196,20 +196,11 @@ public sealed class PipeJsonChannel : IDisposable
             return;
         }
 
-        disposeTokenSource.Cancel();
         try
         {
-            stream.Dispose();
+            disposeTokenSource.Cancel();
         }
-        catch
-        {
-        }
-
-        try
-        {
-            reader.Dispose();
-        }
-        catch
+        catch (ObjectDisposedException)
         {
         }
 
@@ -217,8 +208,42 @@ public sealed class PipeJsonChannel : IDisposable
         {
             writer.Dispose();
         }
+        catch (Exception ex)
+        {
+            ReportFault(ex);
+        }
+
+        try
+        {
+            reader.Dispose();
+        }
+        catch (Exception ex)
+        {
+            ReportFault(ex);
+        }
+
+        try
+        {
+            stream.Dispose();
+        }
+        catch (Exception ex)
+        {
+            ReportFault(ex);
+        }
+
+        disposeTokenSource.Dispose();
+        writeLock.Dispose();
+    }
+
+    private void ReportFault(Exception ex)
+    {
+        try
+        {
+            Faulted?.Invoke(ex);
+        }
         catch
         {
+            // Ignore subscriber errors during disposal.
         }
     }
 
