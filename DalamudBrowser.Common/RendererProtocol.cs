@@ -129,7 +129,7 @@ public sealed class PipeJsonChannel : IDisposable
             PipeDirection.InOut,
             1,
             PipeTransmissionMode.Byte,
-            PipeOptions.Asynchronous);
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
         await server.WaitForConnectionAsync(cancellationToken);
         return new PipeJsonChannel(server);
@@ -141,7 +141,7 @@ public sealed class PipeJsonChannel : IDisposable
             ".",
             pipeName,
             PipeDirection.InOut,
-            PipeOptions.Asynchronous);
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
         await client.ConnectAsync(cancellationToken);
         return new PipeJsonChannel(client);

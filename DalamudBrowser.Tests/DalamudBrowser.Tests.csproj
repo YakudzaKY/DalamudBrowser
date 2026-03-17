@@ -19,6 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\DalamudBrowser.Common\DalamudBrowser.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\DalamudBrowser\Services\BrowserUrlUtility.cs" Link="Services\BrowserUrlUtility.cs" />
   </ItemGroup>
 
