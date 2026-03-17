@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using DalamudBrowser.Common;
@@ -27,6 +28,9 @@ public class PipeJsonChannelTests
         await serverChannel.SendAsync(testMessage, cts.Token);
 
         var receivedJson = await tcs.Task.WaitAsync(cts.Token);
-        Assert.Contains("\"kind\":\"test\"", receivedJson);
+        var receivedCommand = JsonSerializer.Deserialize<RendererCommand>(receivedJson, JsonProtocol.Options);
+
+        Assert.NotNull(receivedCommand);
+        Assert.Equal("test", receivedCommand.Kind);
     }
 }
