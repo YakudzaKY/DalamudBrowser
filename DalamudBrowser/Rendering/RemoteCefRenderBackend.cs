@@ -566,8 +566,9 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
             {
                 TrySend(RendererCommand.Shutdown());
             }
-            catch
+            catch (Exception ex)
             {
+                log.Warning(ex, "Failed to send shutdown command to the browser renderer process.");
             }
 
             StopInternal();
