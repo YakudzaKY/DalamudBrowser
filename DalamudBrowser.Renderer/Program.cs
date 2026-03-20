@@ -61,8 +61,9 @@ internal static class Program
                 {
                     await channel.SendAsync(RendererEvent.Fatal(ex.Message));
                 }
-                catch
+                catch (Exception sendEx)
                 {
+                    Console.Error.WriteLine(sendEx);
                 }
             }
 
