@@ -515,29 +515,43 @@ public sealed class BrowserWorkspace : IDisposable
 
     private bool IsActProcessRunning()
     {
-        foreach (var processName in ActProcessNames)
+        Process[]? allProcesses = null;
+        try
         {
-            Process[]? matches = null;
-            try
+            allProcesses = Process.GetProcesses();
+            var runningNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var process in allProcesses)
             {
-                matches = Process.GetProcessesByName(processName);
-                if (matches.Length > 0)
+                try
+                {
+                    runningNames.Add(process.ProcessName);
+                }
+                catch (Exception ex)
+                {
+                    log.Warning(ex, "Could not get process name for PID {ProcessId}", process.Id);
+                }
+            }
+
+            foreach (var processName in ActProcessNames)
+            {
+                if (runningNames.Contains(processName))
                 {
                     return true;
                 }
             }
-            catch (Exception ex)
+        }
+        catch (Exception ex)
+        {
+            log.Error(ex, "Could not poll for ACT processes");
+        }
+        finally
+        {
+            if (allProcesses != null)
             {
-                log.Error(ex, "Could not poll for ACT process {ProcessName}", processName);
-            }
-            finally
-            {
-                if (matches != null)
+                foreach (var process in allProcesses)
                 {
-                    foreach (var match in matches)
-                    {
-                        match.Dispose();
-                    }
+                    process.Dispose();
                 }
             }
         }
