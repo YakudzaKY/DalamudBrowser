@@ -247,19 +247,42 @@ public sealed class BrowserWorkspace : IDisposable
             Configuration.EnsureInitialized();
             SyncRuntimeStatesLocked();
 
-            knownViewIds = Configuration.Collections
-                .SelectMany(collection => collection.Views)
-                .Select(view => view.Id)
-                .ToList();
-
-            windows = Configuration.Collections
-                .Where(collection => collection.IsEnabled)
-                .SelectMany(collection => collection.Views)
-                .Where(view => view.IsVisible)
-                .Select(view =>
+            var viewCapacity = 0;
+            var windowCapacity = 0;
+            foreach (var collection in Configuration.Collections)
+            {
+                var viewCount = collection.Views.Count;
+                viewCapacity += viewCount;
+                if (collection.IsEnabled)
                 {
+                    windowCapacity += viewCount;
+                }
+            }
+
+            knownViewIds = new List<Guid>(viewCapacity);
+            windows = new List<BrowserViewWindowSnapshot>(windowCapacity);
+
+            foreach (var collection in Configuration.Collections)
+            {
+                foreach (var view in collection.Views)
+                {
+                    knownViewIds.Add(view.Id);
+                }
+
+                if (!collection.IsEnabled)
+                {
+                    continue;
+                }
+
+                foreach (var view in collection.Views)
+                {
+                    if (!view.IsVisible)
+                    {
+                        continue;
+                    }
+
                     var layout = ResolveWindowLayout(view, viewport);
-                    return new BrowserViewWindowSnapshot(
+                    windows.Add(new BrowserViewWindowSnapshot(
                         view.Id,
                         view.Title,
                         view.Url,
@@ -275,9 +298,9 @@ public sealed class BrowserWorkspace : IDisposable
                         view.ZoomPercent,
                         view.OpacityPercent,
                         layout.Position,
-                        layout.Size);
-                })
-                .ToList();
+                        layout.Size));
+                }
+            }
         }
 
         if (activeResizeViewId.HasValue
