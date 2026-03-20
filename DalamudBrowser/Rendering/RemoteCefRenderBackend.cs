@@ -818,8 +818,9 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
                         }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    log.Warning(ex, "Failed to cleanly terminate browser renderer process.");
                 }
 
                 process.Dispose();
