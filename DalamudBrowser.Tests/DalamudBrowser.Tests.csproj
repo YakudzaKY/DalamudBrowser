@@ -24,6 +24,9 @@
 
   <ItemGroup>
     <Compile Include="..\DalamudBrowser\Services\BrowserUrlUtility.cs" Link="Services\BrowserUrlUtility.cs" />
+    <Compile Include="..\DalamudBrowser\Models\BrowserCollectionConfig.cs" Link="Models\BrowserCollectionConfig.cs" />
+    <Compile Include="..\DalamudBrowser\Models\BrowserViewConfig.cs" Link="Models\BrowserViewConfig.cs" />
+    <Compile Include="..\DalamudBrowser\Models\BrowserViewPerformancePreset.cs" Link="Models\BrowserViewPerformancePreset.cs" />
   </ItemGroup>
 
 </Project>
