@@ -494,12 +494,24 @@ public sealed class BrowserWorkspace : IDisposable
 
     private List<Guid> GetActOptimizedViewIdsLocked()
     {
-        return Configuration.Collections
-            .Where(collection => collection.IsEnabled)
-            .SelectMany(collection => collection.Views)
-            .Where(view => view.ActOptimizations && !string.IsNullOrWhiteSpace(view.Url) && BrowserUrlUtility.IsLikelyActOverlay(view.Url))
-            .Select(view => view.Id)
-            .ToList();
+        var result = new List<Guid>();
+        foreach (var collection in Configuration.Collections)
+        {
+            if (!collection.IsEnabled)
+            {
+                continue;
+            }
+
+            foreach (var view in collection.Views)
+            {
+                if (view.ActOptimizations && !string.IsNullOrWhiteSpace(view.Url) && BrowserUrlUtility.IsLikelyActOverlay(view.Url))
+                {
+                    result.Add(view.Id);
+                }
+            }
+        }
+
+        return result;
     }
 
     private bool IsActProcessRunningCached()
