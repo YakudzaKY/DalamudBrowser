@@ -758,7 +758,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
             }
             catch (OperationCanceledException)
             {
-                // Shutdown requested.
+                log.Debug("Browser renderer pipe connection accept cancelled (shutdown requested).");
             }
             catch (Exception ex)
             {
