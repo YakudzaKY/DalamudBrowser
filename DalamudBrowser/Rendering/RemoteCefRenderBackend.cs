@@ -758,6 +758,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
             }
             catch (OperationCanceledException)
             {
+                // Shutdown requested.
             }
             catch (Exception ex)
             {
