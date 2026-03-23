@@ -167,12 +167,15 @@ public sealed class PipeJsonChannel : IDisposable
         }
         catch (OperationCanceledException) when (disposeTokenSource.IsCancellationRequested)
         {
+            // The channel is being disposed.
         }
         catch (ObjectDisposedException) when (disposeTokenSource.IsCancellationRequested || Volatile.Read(ref disposeRequested) != 0)
         {
+            // The channel is being disposed.
         }
         catch (IOException) when (disposeTokenSource.IsCancellationRequested || Volatile.Read(ref disposeRequested) != 0)
         {
+            // The channel is being disposed.
         }
         finally
         {
@@ -184,6 +187,7 @@ public sealed class PipeJsonChannel : IDisposable
                 }
                 catch (ObjectDisposedException)
                 {
+                    // The lock was already disposed.
                 }
             }
         }
@@ -202,6 +206,7 @@ public sealed class PipeJsonChannel : IDisposable
         }
         catch (ObjectDisposedException)
         {
+            // The token source was already disposed.
         }
 
         try
@@ -264,6 +269,7 @@ public sealed class PipeJsonChannel : IDisposable
         }
         catch (OperationCanceledException)
         {
+            // Shutdown requested.
         }
         catch (Exception ex)
         {

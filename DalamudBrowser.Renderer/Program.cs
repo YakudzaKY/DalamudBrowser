@@ -50,6 +50,7 @@ internal static class Program
         }
         catch (OperationCanceledException)
         {
+            // Shutdown requested.
             return 0;
         }
         catch (Exception ex)

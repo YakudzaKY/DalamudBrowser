@@ -359,6 +359,7 @@ public sealed class BrowserWorkspace : IDisposable
         }
         catch (OperationCanceledException)
         {
+            // Shutdown requested.
         }
     }
 
