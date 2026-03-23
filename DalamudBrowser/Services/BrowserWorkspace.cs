@@ -112,6 +112,7 @@ public sealed class BrowserWorkspace : IDisposable
         }
         catch (AggregateException)
         {
+            // Intentionally ignored during resource disposal.
         }
     }
 
