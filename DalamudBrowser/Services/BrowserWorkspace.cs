@@ -68,6 +68,7 @@ public sealed class BrowserWorkspace : IDisposable
     private readonly CancellationTokenSource disposeTokenSource = new();
     private readonly Task availabilityLoop;
     private readonly ConcurrentDictionary<Guid, BrowserViewRuntimeState> runtimeStates = new();
+    private readonly Dictionary<Guid, BrowserViewConfig> viewCache = new();
     private bool pendingLayoutSave;
     private Guid? activeDragViewId;
     private Guid? activeResizeViewId;
@@ -148,6 +149,7 @@ public sealed class BrowserWorkspace : IDisposable
             };
 
             collection.Views.Add(view);
+            SyncRuntimeStatesLocked();
             GetRuntimeState(view.Id).RequestLayoutApply();
             Configuration.Save();
             return view;
@@ -176,7 +178,7 @@ public sealed class BrowserWorkspace : IDisposable
             }
 
             collection.Views.RemoveAll(view => view.Id == viewId);
-            runtimeStates.TryRemove(viewId, out _);
+            SyncRuntimeStatesLocked();
             Configuration.Save();
         }
     }
@@ -820,37 +822,27 @@ public sealed class BrowserWorkspace : IDisposable
 
     private bool TryFindViewLocked(Guid viewId, out BrowserViewConfig view)
     {
-        foreach (var collection in Configuration.Collections)
-        {
-            var found = collection.Views.Find(candidate => candidate.Id == viewId);
-            if (found != null)
-            {
-                view = found;
-                return true;
-            }
-        }
-
-        view = null!;
-        return false;
+        return viewCache.TryGetValue(viewId, out view!);
     }
 
     private void SyncRuntimeStatesLocked()
     {
-        var activeIds = Configuration.Collections
-            .SelectMany(collection => collection.Views)
-            .Select(view => view.Id)
-            .ToHashSet();
+        viewCache.Clear();
 
-        foreach (var viewId in activeIds)
+        foreach (var collection in Configuration.Collections)
         {
-            runtimeStates.TryAdd(viewId, new BrowserViewRuntimeState());
+            foreach (var view in collection.Views)
+            {
+                viewCache[view.Id] = view;
+                runtimeStates.TryAdd(view.Id, new BrowserViewRuntimeState());
+            }
         }
 
-        foreach (var runtimeState in runtimeStates.Keys)
+        foreach (var viewId in runtimeStates.Keys)
         {
-            if (!activeIds.Contains(runtimeState))
+            if (!viewCache.ContainsKey(viewId))
             {
-                runtimeStates.TryRemove(runtimeState, out _);
+                runtimeStates.TryRemove(viewId, out _);
             }
         }
     }
