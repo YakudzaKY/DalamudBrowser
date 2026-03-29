@@ -1,0 +1,11 @@
+--- BrowserWorkspace DrawViews Benchmark ---
+Baseline: 1143 ms
+Optimized: 626 ms
+
+--- TryFindView Search Benchmark (50 views) ---
+Baseline: 585 ms
+Optimized: 111 ms
+
+--- TryFindView Search Benchmark (500 views) ---
+Baseline: 4543 ms
+Optimized: 54 ms

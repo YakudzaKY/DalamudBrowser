@@ -1,0 +1,14 @@
+/app/Bench/TryFindView_Bench.cs(13,16): warning CS8618: Non-nullable field '_cache' must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring the field as nullable. [/app/Bench/Bench.csproj]
+/app/Bench/TryFindView_Bench.cs(44,20): warning CS8625: Cannot convert null literal to non-nullable reference type. [/app/Bench/Bench.csproj]
+/app/Bench/TryFindView_Bench.cs(63,51): warning CS8601: Possible null reference assignment. [/app/Bench/Bench.csproj]
+--- BrowserWorkspace DrawViews Benchmark ---
+Baseline: 959 ms
+Optimized: 564 ms
+
+--- TryFindView Search Benchmark (50 views) ---
+Baseline: 586 ms
+Optimized: 54 ms
+
+--- TryFindView Search Benchmark (500 views) ---
+Baseline: 4470 ms
+Optimized: 55 ms

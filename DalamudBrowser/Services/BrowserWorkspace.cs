@@ -250,58 +250,38 @@ public sealed class BrowserWorkspace : IDisposable
             Configuration.EnsureInitialized();
             SyncRuntimeStatesLocked();
 
-            var viewCapacity = 0;
-            var windowCapacity = 0;
-            foreach (var collection in Configuration.Collections)
-            {
-                var viewCount = collection.Views.Count;
-                viewCapacity += viewCount;
-                if (collection.IsEnabled)
-                {
-                    windowCapacity += viewCount;
-                }
-            }
-
+            var viewCapacity = viewCache.Count;
             knownViewIds = new List<Guid>(viewCapacity);
-            windows = new List<BrowserViewWindowSnapshot>(windowCapacity);
+            windows = new List<BrowserViewWindowSnapshot>(viewCapacity);
 
             foreach (var collection in Configuration.Collections)
             {
+                var isCollectionEnabled = collection.IsEnabled;
                 foreach (var view in collection.Views)
                 {
                     knownViewIds.Add(view.Id);
-                }
 
-                if (!collection.IsEnabled)
-                {
-                    continue;
-                }
-
-                foreach (var view in collection.Views)
-                {
-                    if (!view.IsVisible)
+                    if (isCollectionEnabled && view.IsVisible)
                     {
-                        continue;
+                        var layout = ResolveWindowLayout(view, viewport);
+                        windows.Add(new BrowserViewWindowSnapshot(
+                            view.Id,
+                            view.Title,
+                            view.Url,
+                            view.Locked,
+                            view.ClickThrough,
+                            view.ActOptimizations,
+                            view.UseCustomFrameRates,
+                            view.SoundEnabled,
+                            view.PerformancePreset,
+                            view.InteractiveFrameRate,
+                            view.PassiveFrameRate,
+                            view.HiddenFrameRate,
+                            view.ZoomPercent,
+                            view.OpacityPercent,
+                            layout.Position,
+                            layout.Size));
                     }
-
-                    var layout = ResolveWindowLayout(view, viewport);
-                    windows.Add(new BrowserViewWindowSnapshot(
-                        view.Id,
-                        view.Title,
-                        view.Url,
-                        view.Locked,
-                        view.ClickThrough,
-                        view.ActOptimizations,
-                        view.UseCustomFrameRates,
-                        view.SoundEnabled,
-                        view.PerformancePreset,
-                        view.InteractiveFrameRate,
-                        view.PassiveFrameRate,
-                        view.HiddenFrameRate,
-                        view.ZoomPercent,
-                        view.OpacityPercent,
-                        layout.Position,
-                        layout.Size));
                 }
             }
         }

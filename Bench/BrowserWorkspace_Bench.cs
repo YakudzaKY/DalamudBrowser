@@ -55,40 +55,31 @@ namespace DalamudBrowser.Bench
         {
             for (int i = 0; i < iterations; i++)
             {
-                int viewCapacity = 0;
-                int windowCapacity = 0;
-
-                foreach (var collection in _config.Collections)
+                // Mimicking viewCache.Count which we have in the actual workspace
+                var totalViews = 0;
+                foreach (var c in _config.Collections)
                 {
-                    var viewsCount = collection.Views.Count;
-                    viewCapacity += viewsCount;
-                    if (collection.IsEnabled)
-                    {
-                        windowCapacity += viewsCount; // Rough estimate to prevent reallocations
-                    }
+                    totalViews += c.Views.Count;
                 }
 
-                var knownViewIds = new List<Guid>(viewCapacity);
-                var windows = new List<BrowserViewWindowSnapshot_Mock>(windowCapacity);
+                var knownViewIds = new List<Guid>(totalViews);
+                var windows = new List<BrowserViewWindowSnapshot_Mock>(totalViews);
 
                 foreach (var collection in _config.Collections)
                 {
+                    var isCollectionEnabled = collection.IsEnabled;
                     foreach (var view in collection.Views)
                     {
                         knownViewIds.Add(view.Id);
-                    }
 
-                    if (!collection.IsEnabled) continue;
-
-                    foreach (var view in collection.Views)
-                    {
-                        if (!view.IsVisible) continue;
-
-                        // Simplified ResolveWindowLayout for benchmark
-                        var layoutPosition = new Vector2(0, 0);
-                        var layoutSize = new Vector2(800, 600);
-                        windows.Add(new BrowserViewWindowSnapshot_Mock(
-                            view.Id, view.Title, view.Url, false, false, false, false, false, default, 60, 30, 10, 100, 100, layoutPosition, layoutSize));
+                        if (isCollectionEnabled && view.IsVisible)
+                        {
+                            // Simplified ResolveWindowLayout for benchmark
+                            var layoutPosition = new Vector2(0, 0);
+                            var layoutSize = new Vector2(800, 600);
+                            windows.Add(new BrowserViewWindowSnapshot_Mock(
+                                view.Id, view.Title, view.Url, false, false, false, false, false, default, 60, 30, 10, 100, 100, layoutPosition, layoutSize));
+                        }
                     }
                 }
             }
