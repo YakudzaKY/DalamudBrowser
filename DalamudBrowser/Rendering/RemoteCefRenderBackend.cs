@@ -621,7 +621,6 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
                     StartInfo = new ProcessStartInfo
                     {
                         FileName = executablePath,
-                        Arguments = payload.ToBase64Json(),
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         RedirectStandardOutput = true,
@@ -629,6 +628,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
                     },
                     EnableRaisingEvents = true,
                 };
+                process.StartInfo.ArgumentList.Add(payload.ToBase64Json());
 
                 process.OutputDataReceived += (_, args) =>
                 {
