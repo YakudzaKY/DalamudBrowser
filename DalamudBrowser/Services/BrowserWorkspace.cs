@@ -563,7 +563,14 @@ public sealed class BrowserWorkspace : IDisposable
                 using var process = Process.GetProcessById(cachedId);
                 if (!process.HasExited)
                 {
-                    return true;
+                    var name = process.ProcessName;
+                    foreach (var actName in ActProcessNames)
+                    {
+                        if (name.Equals(actName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
                 }
             }
             catch (ArgumentException)
