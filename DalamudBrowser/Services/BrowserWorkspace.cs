@@ -79,6 +79,7 @@ public sealed class BrowserWorkspace : IDisposable
     private Vector2 resizeStartWindowPosition;
     private Vector2 resizeStartWindowSize;
     private int actProcessRunningState = -1;
+    private int actProcessId = -1;
 
     public BrowserWorkspace(Configuration configuration, IPluginLog log, IBrowserRenderBackend renderBackend)
     {
@@ -543,6 +544,37 @@ public sealed class BrowserWorkspace : IDisposable
 
     private bool IsActProcessRunning()
     {
+        var cachedId = Volatile.Read(ref actProcessId);
+        if (cachedId != -1)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(cachedId);
+                if (!process.HasExited)
+                {
+                    var name = process.ProcessName;
+                    foreach (var actName in ActProcessNames)
+                    {
+                        if (name.Equals(actName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch (ArgumentException)
+            {
+                // Process has exited or cannot be found
+            }
+            catch (Exception ex)
+            {
+                log.Debug(ex, "Could not access cached ACT process ID {ProcessId}", cachedId);
+            }
+
+            // Clear the cached ID if it's no longer valid
+            Interlocked.CompareExchange(ref actProcessId, -1, cachedId);
+        }
+
         foreach (var processName in ActProcessNames)
         {
             Process[]? matches = null;
@@ -551,6 +583,7 @@ public sealed class BrowserWorkspace : IDisposable
                 matches = Process.GetProcessesByName(processName);
                 if (matches.Length > 0)
                 {
+                    Volatile.Write(ref actProcessId, matches[0].Id);
                     return true;
                 }
             }
