@@ -129,7 +129,7 @@ public sealed class PipeJsonChannel : IDisposable
             PipeDirection.InOut,
             1,
             PipeTransmissionMode.Byte,
-            PipeOptions.Asynchronous);
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
         await server.WaitForConnectionAsync(cancellationToken);
         return new PipeJsonChannel(server);
@@ -141,7 +141,7 @@ public sealed class PipeJsonChannel : IDisposable
             ".",
             pipeName,
             PipeDirection.InOut,
-            PipeOptions.Asynchronous);
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
         await client.ConnectAsync(cancellationToken);
         return new PipeJsonChannel(client);
@@ -167,12 +167,15 @@ public sealed class PipeJsonChannel : IDisposable
         }
         catch (OperationCanceledException) when (disposeTokenSource.IsCancellationRequested)
         {
+            // The channel is being disposed.
         }
         catch (ObjectDisposedException) when (disposeTokenSource.IsCancellationRequested || Volatile.Read(ref disposeRequested) != 0)
         {
+            // The channel is being disposed.
         }
         catch (IOException) when (disposeTokenSource.IsCancellationRequested || Volatile.Read(ref disposeRequested) != 0)
         {
+            // The channel is being disposed.
         }
         finally
         {
@@ -184,6 +187,7 @@ public sealed class PipeJsonChannel : IDisposable
                 }
                 catch (ObjectDisposedException)
                 {
+                    // The lock was already disposed.
                 }
             }
         }
@@ -196,29 +200,55 @@ public sealed class PipeJsonChannel : IDisposable
             return;
         }
 
-        disposeTokenSource.Cancel();
         try
         {
-            stream.Dispose();
+            disposeTokenSource.Cancel();
         }
-        catch
+        catch (ObjectDisposedException)
         {
-        }
-
-        try
-        {
-            reader.Dispose();
-        }
-        catch
-        {
+            // The token source was already disposed.
         }
 
         try
         {
             writer.Dispose();
         }
+        catch (Exception ex)
+        {
+            ReportFault(ex);
+        }
+
+        try
+        {
+            reader.Dispose();
+        }
+        catch (Exception ex)
+        {
+            ReportFault(ex);
+        }
+
+        try
+        {
+            stream.Dispose();
+        }
+        catch (Exception ex)
+        {
+            ReportFault(ex);
+        }
+
+        disposeTokenSource.Dispose();
+        writeLock.Dispose();
+    }
+
+    private void ReportFault(Exception ex)
+    {
+        try
+        {
+            Faulted?.Invoke(ex);
+        }
         catch
         {
+            // Ignore subscriber errors during disposal.
         }
     }
 
@@ -239,6 +269,7 @@ public sealed class PipeJsonChannel : IDisposable
         }
         catch (OperationCanceledException)
         {
+            // Shutdown requested.
         }
         catch (Exception ex)
         {

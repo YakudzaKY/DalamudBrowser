@@ -566,8 +566,9 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
             {
                 TrySend(RendererCommand.Shutdown());
             }
-            catch
+            catch (Exception ex)
             {
+                log.Warning(ex, "Failed to send shutdown command to the browser renderer process.");
             }
 
             StopInternal();
@@ -620,7 +621,6 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
                     StartInfo = new ProcessStartInfo
                     {
                         FileName = executablePath,
-                        Arguments = payload.ToBase64Json(),
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         RedirectStandardOutput = true,
@@ -628,6 +628,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
                     },
                     EnableRaisingEvents = true,
                 };
+                process.StartInfo.ArgumentList.Add(payload.ToBase64Json());
 
                 process.OutputDataReceived += (_, args) =>
                 {
@@ -757,6 +758,7 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
             }
             catch (OperationCanceledException)
             {
+                log.Debug("Browser renderer pipe connection accept cancelled (shutdown requested).");
             }
             catch (Exception ex)
             {
@@ -818,8 +820,9 @@ public sealed class RemoteCefRenderBackend : IBrowserRenderBackend
                         }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    log.Warning(ex, "Failed to cleanly terminate browser renderer process.");
                 }
 
                 process.Dispose();

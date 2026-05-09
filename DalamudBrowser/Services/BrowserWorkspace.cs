@@ -68,6 +68,7 @@ public sealed class BrowserWorkspace : IDisposable
     private readonly CancellationTokenSource disposeTokenSource = new();
     private readonly Task availabilityLoop;
     private readonly ConcurrentDictionary<Guid, BrowserViewRuntimeState> runtimeStates = new();
+    private readonly Dictionary<Guid, BrowserViewConfig> viewCache = new();
     private bool pendingLayoutSave;
     private Guid? activeDragViewId;
     private Guid? activeResizeViewId;
@@ -78,6 +79,7 @@ public sealed class BrowserWorkspace : IDisposable
     private Vector2 resizeStartWindowPosition;
     private Vector2 resizeStartWindowSize;
     private int actProcessRunningState = -1;
+    private int actProcessId = -1;
 
     public BrowserWorkspace(Configuration configuration, IPluginLog log, IBrowserRenderBackend renderBackend)
     {
@@ -112,6 +114,7 @@ public sealed class BrowserWorkspace : IDisposable
         }
         catch (AggregateException)
         {
+            // Intentionally ignored during resource disposal.
         }
     }
 
@@ -147,6 +150,7 @@ public sealed class BrowserWorkspace : IDisposable
             };
 
             collection.Views.Add(view);
+            SyncRuntimeStatesLocked();
             GetRuntimeState(view.Id).RequestLayoutApply();
             Configuration.Save();
             return view;
@@ -175,7 +179,7 @@ public sealed class BrowserWorkspace : IDisposable
             }
 
             collection.Views.RemoveAll(view => view.Id == viewId);
-            runtimeStates.TryRemove(viewId, out _);
+            SyncRuntimeStatesLocked();
             Configuration.Save();
         }
     }
@@ -247,37 +251,49 @@ public sealed class BrowserWorkspace : IDisposable
             Configuration.EnsureInitialized();
             SyncRuntimeStatesLocked();
 
-            knownViewIds = Configuration.Collections
-                .SelectMany(collection => collection.Views)
-                .Select(view => view.Id)
-                .ToList();
-
-            windows = Configuration.Collections
-                .Where(collection => collection.IsEnabled)
-                .SelectMany(collection => collection.Views)
-                .Where(view => view.IsVisible)
-                .Select(view =>
+            var viewCapacity = viewCache.Count;
+            var windowCapacity = 0;
+            foreach (var collection in Configuration.Collections)
+            {
+                if (collection.IsEnabled)
                 {
-                    var layout = ResolveWindowLayout(view, viewport);
-                    return new BrowserViewWindowSnapshot(
-                        view.Id,
-                        view.Title,
-                        view.Url,
-                        view.Locked,
-                        view.ClickThrough,
-                        view.ActOptimizations,
-                        view.UseCustomFrameRates,
-                        view.SoundEnabled,
-                        view.PerformancePreset,
-                        view.InteractiveFrameRate,
-                        view.PassiveFrameRate,
-                        view.HiddenFrameRate,
-                        view.ZoomPercent,
-                        view.OpacityPercent,
-                        layout.Position,
-                        layout.Size);
-                })
-                .ToList();
+                    windowCapacity += collection.Views.Count;
+                }
+            }
+
+            knownViewIds = new List<Guid>(viewCapacity);
+            windows = new List<BrowserViewWindowSnapshot>(windowCapacity);
+
+            foreach (var collection in Configuration.Collections)
+            {
+                var isCollectionEnabled = collection.IsEnabled;
+                foreach (var view in collection.Views)
+                {
+                    knownViewIds.Add(view.Id);
+
+                    if (isCollectionEnabled && view.IsVisible)
+                    {
+                        var layout = ResolveWindowLayout(view, viewport);
+                        windows.Add(new BrowserViewWindowSnapshot(
+                            view.Id,
+                            view.Title,
+                            view.Url,
+                            view.Locked,
+                            view.ClickThrough,
+                            view.ActOptimizations,
+                            view.UseCustomFrameRates,
+                            view.SoundEnabled,
+                            view.PerformancePreset,
+                            view.InteractiveFrameRate,
+                            view.PassiveFrameRate,
+                            view.HiddenFrameRate,
+                            view.ZoomPercent,
+                            view.OpacityPercent,
+                            layout.Position,
+                            layout.Size));
+                    }
+                }
+            }
         }
 
         if (activeResizeViewId.HasValue
@@ -336,6 +352,7 @@ public sealed class BrowserWorkspace : IDisposable
         }
         catch (OperationCanceledException)
         {
+            // Shutdown requested.
         }
     }
 
@@ -494,12 +511,24 @@ public sealed class BrowserWorkspace : IDisposable
 
     private List<Guid> GetActOptimizedViewIdsLocked()
     {
-        return Configuration.Collections
-            .Where(collection => collection.IsEnabled)
-            .SelectMany(collection => collection.Views)
-            .Where(view => view.ActOptimizations && !string.IsNullOrWhiteSpace(view.Url) && BrowserUrlUtility.IsLikelyActOverlay(view.Url))
-            .Select(view => view.Id)
-            .ToList();
+        var result = new List<Guid>();
+        foreach (var collection in Configuration.Collections)
+        {
+            if (!collection.IsEnabled)
+            {
+                continue;
+            }
+
+            foreach (var view in collection.Views)
+            {
+                if (view.ActOptimizations && !string.IsNullOrWhiteSpace(view.Url) && BrowserUrlUtility.IsLikelyActOverlay(view.Url))
+                {
+                    result.Add(view.Id);
+                }
+            }
+        }
+
+        return result;
     }
 
     private bool IsActProcessRunningCached()
@@ -515,6 +544,37 @@ public sealed class BrowserWorkspace : IDisposable
 
     private bool IsActProcessRunning()
     {
+        var cachedId = Volatile.Read(ref actProcessId);
+        if (cachedId != -1)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(cachedId);
+                if (!process.HasExited)
+                {
+                    var name = process.ProcessName;
+                    foreach (var actName in ActProcessNames)
+                    {
+                        if (name.Equals(actName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch (ArgumentException)
+            {
+                // Process has exited or cannot be found
+            }
+            catch (Exception ex)
+            {
+                log.Debug(ex, "Could not access cached ACT process ID {ProcessId}", cachedId);
+            }
+
+            // Clear the cached ID if it's no longer valid
+            Interlocked.CompareExchange(ref actProcessId, -1, cachedId);
+        }
+
         foreach (var processName in ActProcessNames)
         {
             Process[]? matches = null;
@@ -523,6 +583,7 @@ public sealed class BrowserWorkspace : IDisposable
                 matches = Process.GetProcessesByName(processName);
                 if (matches.Length > 0)
                 {
+                    Volatile.Write(ref actProcessId, matches[0].Id);
                     return true;
                 }
             }
@@ -783,37 +844,27 @@ public sealed class BrowserWorkspace : IDisposable
 
     private bool TryFindViewLocked(Guid viewId, out BrowserViewConfig view)
     {
-        foreach (var collection in Configuration.Collections)
-        {
-            var found = collection.Views.Find(candidate => candidate.Id == viewId);
-            if (found != null)
-            {
-                view = found;
-                return true;
-            }
-        }
-
-        view = null!;
-        return false;
+        return viewCache.TryGetValue(viewId, out view!);
     }
 
     private void SyncRuntimeStatesLocked()
     {
-        var activeIds = Configuration.Collections
-            .SelectMany(collection => collection.Views)
-            .Select(view => view.Id)
-            .ToHashSet();
+        viewCache.Clear();
 
-        foreach (var viewId in activeIds)
+        foreach (var collection in Configuration.Collections)
         {
-            runtimeStates.TryAdd(viewId, new BrowserViewRuntimeState());
+            foreach (var view in collection.Views)
+            {
+                viewCache[view.Id] = view;
+                runtimeStates.TryAdd(view.Id, new BrowserViewRuntimeState());
+            }
         }
 
-        foreach (var runtimeState in runtimeStates.Keys)
+        foreach (var viewId in runtimeStates.Keys)
         {
-            if (!activeIds.Contains(runtimeState))
+            if (!viewCache.ContainsKey(viewId))
             {
-                runtimeStates.TryRemove(runtimeState, out _);
+                runtimeStates.TryRemove(viewId, out _);
             }
         }
     }

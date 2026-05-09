@@ -50,6 +50,7 @@ internal static class Program
         }
         catch (OperationCanceledException)
         {
+            // Shutdown requested.
             return 0;
         }
         catch (Exception ex)
@@ -61,8 +62,9 @@ internal static class Program
                 {
                     await channel.SendAsync(RendererEvent.Fatal(ex.Message));
                 }
-                catch
+                catch (Exception sendEx)
                 {
+                    Console.Error.WriteLine(sendEx);
                 }
             }
 

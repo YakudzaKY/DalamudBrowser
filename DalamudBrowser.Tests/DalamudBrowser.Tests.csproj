@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -19,7 +19,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\DalamudBrowser.Common\DalamudBrowser.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\DalamudBrowser\Models\BrowserViewConfig.cs" Link="Models\BrowserViewConfig.cs" />
+    <Compile Include="..\DalamudBrowser\Models\BrowserViewPerformancePreset.cs" Link="Models\BrowserViewPerformancePreset.cs" />
     <Compile Include="..\DalamudBrowser\Services\BrowserUrlUtility.cs" Link="Services\BrowserUrlUtility.cs" />
+    <Compile Include="..\DalamudBrowser\Models\BrowserCollectionConfig.cs" Link="Models\BrowserCollectionConfig.cs" />
   </ItemGroup>
 
 </Project>
