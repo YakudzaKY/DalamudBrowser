@@ -9,8 +9,8 @@ namespace DalamudBrowser;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 3;
-    public bool OpenManagerOnStartup { get; set; } = true;
+    public int Version { get; set; } = 4;
+    public bool OpenManagerOnStartup { get; set; } = false;
     public int LinkCheckIntervalSeconds { get; set; } = 5;
     public int LinkRequestTimeoutSeconds { get; set; } = 3;
     public Guid SelectedCollectionId { get; set; } = Guid.Empty;
@@ -18,6 +18,12 @@ public sealed class Configuration : IPluginConfiguration
 
     public void EnsureInitialized()
     {
+        if (Version < 4)
+        {
+            OpenManagerOnStartup = false;
+            Version = 4;
+        }
+
         LinkCheckIntervalSeconds = Math.Clamp(LinkCheckIntervalSeconds, 2, 60);
         LinkRequestTimeoutSeconds = Math.Clamp(LinkRequestTimeoutSeconds, 2, 30);
 

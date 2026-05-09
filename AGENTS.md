@@ -65,7 +65,7 @@ Do not point Dalamud at `DalamudBrowser.Common.dll` or any DLL inside the render
   - `DalamudBrowser.Common` targets `net10.0-windows`
   - `DalamudBrowser.Renderer` targets `net10.0-windows`
 - Treat the project as modern .NET only. Do not suggest or introduce `.NET Framework`, `net6.0`, `net7.0`, or `net8.0` changes unless the user explicitly asks for a downgrade or compatibility work.
-- The plugin project uses `Dalamud.NET.Sdk/14.0.2`.
+- The plugin project uses `Dalamud.NET.Sdk/15.0.0`.
 - C# language version is `latestmajor` in the shared and renderer projects. Do not intentionally write code around older C# language limitations unless required.
 - Runtime/output assumptions are `Windows` + `win-x64`. The renderer packaging and shared texture path are not cross-platform.
 - Renderer package/runtime versions currently in use:
